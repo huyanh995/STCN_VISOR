@@ -15,8 +15,8 @@ class HyperParameters():
         # Data parameters
         parser.add_argument('--static_root', help='Static training data root', default='../static')
         parser.add_argument('--bl_root', help='Blender training data root', default='../BL30K')
-        parser.add_argument('--yv_root', help='YouTubeVOS data root', default='../YouTube')
-        parser.add_argument('--davis_root', help='DAVIS data root', default='../DAVIS')
+        parser.add_argument('--yv_root', help='YouTubeVOS data root', default='/Users/huyanh/Downloads/YouTube_VOS/train')
+        parser.add_argument('--davis_root', help='DAVIS data root', default='/Users/huyanh/Downloads/DAVIS_2017/DAVIS_trainval')
 
         parser.add_argument('--stage', help='Training stage (0-static images, 1-Blender dataset, 2-DAVIS+YouTubeVOS (300K), 3-DAVIS+YouTubeVOS (150K))', type=int, default=0)
         parser.add_argument('--num_workers', help='Number of datalaoder workers per process', type=int, default=8)

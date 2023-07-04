@@ -61,8 +61,8 @@ class STCNModel:
                 data[k] = v.cuda(non_blocking=True)
 
         out = {}
-        Fs = data['rgb']
-        Ms = data['gt']
+        Fs = data['rgb'] # Load all rgb images
+        Ms = data['gt'] # Load all masks
 
         with torch.cuda.amp.autocast(enabled=self.para['amp']):
             # key features never change, compute once

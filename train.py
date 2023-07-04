@@ -63,7 +63,7 @@ else:
     # Construct model for other ranks
     model = STCNModel(para, local_rank=local_rank, world_size=world_size).train()
 
-# Load pertrained model if needed
+# Load pretrained model if needed
 if para['load_model'] is not None:
     total_iter = model.load_model(para['load_model'])
     print('Previously trained model loaded!')

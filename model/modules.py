@@ -12,6 +12,10 @@ from model import cbam
 
 
 class ResBlock(nn.Module):
+    """
+    Explanation: ResNet like block with some modifications, padding 1 with kernel size 3 will not change the size of the feature map.
+    Concatenate the last layer features from both key and query encoder -> avoid bloating feature dimensions.
+    """
     def __init__(self, indim, outdim=None):
         super(ResBlock, self).__init__()
         if outdim == None:
@@ -35,6 +39,9 @@ class ResBlock(nn.Module):
 
 
 class FeatureFusionBlock(nn.Module):
+    """
+    Explaination: This block is used to fuse the feature from input image and f16 feature from key encoder.
+    """
     def __init__(self, indim, outdim):
         super().__init__()
 
@@ -43,7 +50,11 @@ class FeatureFusionBlock(nn.Module):
         self.block2 = ResBlock(outdim, outdim)
 
     def forward(self, x, f16):
-        x = torch.cat([x, f16], 1)
+        """
+        f16 is feature from key encoder. 
+        TODO: review later.
+        """
+        x = torch.cat([x, f16], dim=1)
         x = self.block1(x)
         r = self.attention(x)
         x = self.block2(x + r)
@@ -90,13 +101,16 @@ class ValueEncoderSO(nn.Module):
 
 # Multiple objects version, used in other times
 class ValueEncoder(nn.Module):
+    """
+    Explanation: image and mask as inputs, encode with ResNet18
+    """
     def __init__(self):
         super().__init__()
 
         resnet = mod_resnet.resnet18(pretrained=True, extra_chan=2)
         self.conv1 = resnet.conv1
         self.bn1 = resnet.bn1
-        self.relu = resnet.relu  # 1/2, 64
+        self.relu = resnet.relu     # 1/2, 64
         self.maxpool = resnet.maxpool
 
         self.layer1 = resnet.layer1 # 1/4, 64
@@ -106,9 +120,15 @@ class ValueEncoder(nn.Module):
         self.fuser = FeatureFusionBlock(1024 + 256, 512)
 
     def forward(self, image, key_f16, mask, other_masks):
+        """
+        image: (B, T, C=3, H, W)
+        key_f16: (B, T, 1024, H/16, W/16)
+        mask: (B, T, C=1, H, W)
+        other_masks: (B, T, C=1, H, W) # Will it be stacked in channel dimension?
+        """
         # key_f16 is the feature from the key encoder
 
-        f = torch.cat([image, mask, other_masks], 1)
+        f = torch.cat([image, mask, other_masks], 1) # (B, T, C=5, H, W)
 
         x = self.conv1(f)
         x = self.bn1(x)
@@ -118,12 +138,15 @@ class ValueEncoder(nn.Module):
         x = self.layer2(x) # 1/8, 128
         x = self.layer3(x) # 1/16, 256
 
-        x = self.fuser(x, key_f16)
+        x = self.fuser(x, key_f16) # (B, T, 256 + 256, H/16, W/16)
 
         return x
- 
+
 
 class KeyEncoder(nn.Module):
+    """
+    Explanation: encode query image with ResNet50, take only image as input.
+    """
     def __init__(self):
         super().__init__()
         resnet = models.resnet50(pretrained=True)
@@ -135,15 +158,19 @@ class KeyEncoder(nn.Module):
         self.res2 = resnet.layer1 # 1/4, 256
         self.layer2 = resnet.layer2 # 1/8, 512
         self.layer3 = resnet.layer3 # 1/16, 1024
+        # Skip resnet.layer4, since we don't need the feature from 1/32
 
-    def forward(self, f):
-        x = self.conv1(f) 
+    def forward(self, img):
+        """
+        Input: img (B*T, C=3, H, W)
+        """
+        x = self.conv1(img) 
         x = self.bn1(x)
-        x = self.relu(x)   # 1/2, 64
-        x = self.maxpool(x)  # 1/4, 64
-        f4 = self.res2(x)   # 1/4, 256
-        f8 = self.layer2(f4) # 1/8, 512
-        f16 = self.layer3(f8) # 1/16, 1024
+        x = self.relu(x)        # (B*T, 64, H/2, W/2)
+        x = self.maxpool(x)     # (B*T, 64, H/4, W/4)
+        f4 = self.res2(x)       # (B*T, 256, H/4, W/4) 
+        f8 = self.layer2(f4)    # (B*T, 512, H/8, W/8)
+        f16 = self.layer3(f8)   # (B*T, 1024, H/16, W/16)
 
         return f16, f8, f4
 
@@ -163,6 +190,9 @@ class UpsampleBlock(nn.Module):
 
 
 class KeyProjection(nn.Module):
+    """
+    Explanation: project the feature to the same number of channels as the key space.
+    """
     def __init__(self, indim, keydim):
         super().__init__()
         self.key_proj = nn.Conv2d(indim, keydim, kernel_size=3, padding=1)

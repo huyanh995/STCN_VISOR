@@ -100,36 +100,58 @@ class STCN(nn.Module):
         return logits
 
     def encode_key(self, frame): 
-        # input: b*t*c*h*w
+        """
+        Encode frames into key space.
+        Input: frame -> (B, T, C, H, W)
+        """
         b, t = frame.shape[:2]
 
-        f16, f8, f4 = self.key_encoder(frame.flatten(start_dim=0, end_dim=1))
-        k16 = self.key_proj(f16)
-        f16_thin = self.key_comp(f16)
+        f16, f8, f4 = self.key_encoder(frame.flatten(start_dim=0, end_dim=1)) # input: (B*T, C, H, W)
+        k16 = self.key_proj(f16) # (B*T, 64, H/16, W/16)
+        f16_thin = self.key_comp(f16) # (B*T, 512, H/16, W/16)
 
         # B*C*T*H*W
-        k16 = k16.view(b, t, *k16.shape[-3:]).transpose(1, 2).contiguous()
+        k16 = k16.view(b, t, *k16.shape[-3:]).transpose(1, 2).contiguous() # (B, T, 64, H/16, W/16)
 
         # B*T*C*H*W
-        f16_thin = f16_thin.view(b, t, *f16_thin.shape[-3:])
-        f16 = f16.view(b, t, *f16.shape[-3:])
-        f8 = f8.view(b, t, *f8.shape[-3:])
-        f4 = f4.view(b, t, *f4.shape[-3:])
+        f16_thin = f16_thin.view(b, t, *f16_thin.shape[-3:]) # (B, T, 512, H/16, W/16)
+        f16 = f16.view(b, t, *f16.shape[-3:])   # (B, T, 1024, H/16, W/16)
+        f8 = f8.view(b, t, *f8.shape[-3:])      # (B, T, 512, H/8, W/8)
+        f4 = f4.view(b, t, *f4.shape[-3:])      # (B, T, 256, H/4, W/4)
+        
+        print(f'DEBUG STCN encode_key: input: frame {frame.shape}, \
+                                    output: k16: {k16.shape}, \
+                                    f16_thin: {f16_thin.shape}, \
+                                    f16: {f16.shape}, \
+                                    f8: {f8.shape}, \
+                                    f4: {f4.shape}')
 
         return k16, f16_thin, f16, f8, f4
 
     def encode_value(self, frame, kf16, mask, other_mask=None): 
-        # Extract memory key/value for a frame
+        """
+        Extract memory key/value for a frame
+        frame: (B, T, C, H, W)
+        kf16: (B, T, 1024, H/16, W/16)
+        mask: (B, T, C=1, H, W)
+        other_mask: (B, T, C=1, H, W)
+        """ 
         if self.single_object:
             f16 = self.value_encoder(frame, kf16, mask)
         else:
             f16 = self.value_encoder(frame, kf16, mask, other_mask)
+        print(f'DEBUG STCN encode_value: input f16: {f16.shape}, \
+                                    kf16 {kf16.shape}, \
+                                    mask: {mask.shape}, \
+                                    other_mask: {other_mask.shape if other_mask is not None else None}, \
+                                    output: {f16.shape}')
+        
         return f16.unsqueeze(2) # B*512*T*H*W
 
     def segment(self, qk16, qv16, qf8, qf4, mk16, mv16, selector=None): 
         # q - query, m - memory
         # qv16 is f16_thin above
-        affinity = self.memory.get_affinity(mk16, qk16)
+        affinity = self.memory.get_affinity(mk16, qk16) # mk -> memory key, qk -> query key
         
         if self.single_object:
             logits = self.decoder(self.memory.readout(affinity, mv16, qv16), qf8, qf4)
