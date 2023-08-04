@@ -245,4 +245,215 @@ class STCNModel:
         self._do_log = False
         self.STCN.eval()
         return self
+    
+
+class STCNModelSingle:
+    """
+    Clone of STCNModel for Single GPU training. For debugging purposes.
+    """
+    def __init__(self, para, save_path=None):
+        self.para = para
+        self.single_object = para['single_object']
+
+        self.STCN = STCN(self.single_object).cuda()
+
+        # Setup logger when local_rank=0
+        self.save_path = save_path
+        self.loss_computer = LossComputer(para)
+
+        self.train()
+        self.optimizer = optim.Adam(filter(
+            lambda p: p.requires_grad, self.STCN.parameters()), lr=para['lr'], weight_decay=1e-7)
+        self.scheduler = optim.lr_scheduler.MultiStepLR(self.optimizer, para['steps'], para['gamma'])
+        if para['amp']:
+            self.scaler = torch.cuda.amp.GradScaler()
+
+    def do_pass(self, data, it=0):
+        # No need to store the gradient outside training
+        torch.set_grad_enabled(self._is_train)
+
+        for k, v in data.items():
+            if type(v) != list and type(v) != dict and type(v) != int:
+                data[k] = v.cuda(non_blocking=True)
+
+        out = {}
+        Fs = data['rgb'] # Load all rgb images: (N, T, 3, H, W)
+        Ms = data['gt'] # Load all masks:       (N, T, 1, H, W)
+
+        with torch.cuda.amp.autocast(enabled=self.para['amp']):
+            # key features never change, compute once
+            k16, kf16_thin, kf16, kf8, kf4 = self.STCN('encode_key', Fs)
+
+            if self.single_object:
+                ref_v = self.STCN('encode_value', Fs[:,0], kf16[:,0], Ms[:,0])
+
+                # Segment frame 1 with frame 0
+                prev_logits, prev_mask = self.STCN('segment', 
+                        k16[:,:,1], kf16_thin[:,1], kf8[:,1], kf4[:,1], 
+                        k16[:,:,0:1], ref_v)
+                prev_v = self.STCN('encode_value', Fs[:,1], kf16[:,1], prev_mask)
+
+                values = torch.cat([ref_v, prev_v], 2)
+
+                del ref_v
+
+                # Segment frame 2 with frame 0 and 1
+                this_logits, this_mask = self.STCN('segment', 
+                        k16[:,:,2], kf16_thin[:,2], kf8[:,2], kf4[:,2], 
+                        k16[:,:,0:2], values)
+
+                out['mask_1'] = prev_mask
+                out['mask_2'] = this_mask
+                out['logits_1'] = prev_logits
+                out['logits_2'] = this_logits
+            else:
+                sec_Ms = data['sec_gt']
+                selector = data['selector']
+
+                # encode value for frame and target object, sec_Ms is the other_mask
+                ref_v1 = self.STCN('encode_value', Fs[:,0], kf16[:,0], Ms[:,0], sec_Ms[:,0]) # (N, 512, T=1, H/16, W/16)
+                # encode value for frame and second target object, Ms is the other_mask
+                ref_v2 = self.STCN('encode_value', Fs[:,0], kf16[:,0], sec_Ms[:,0], Ms[:,0]) # (N, 512, T=1, H/16, W/16)
+                ref_v = torch.stack([ref_v1, ref_v2], 1) # (N, 2, 512, T=1, H/16, W/16), stack always create new dim.
+
+                # Segment frame 1 with frame 0
+                # frame 1 -> query, frame 0 -> key
+                prev_logits, prev_mask = self.STCN('segment',
+                        k16[:,:,1],     # qk16 -> 64 channels projection from key f16
+                        kf16_thin[:,1], # qv16 -> 512 channels projection from key f16
+                        kf8[:,1],       # qf8
+                        kf4[:,1],       # qf4
+                        k16[:,:,0:1],   # mk16
+                        ref_v,          # mv16 -> memory value from previous mask (1st frame)
+                        selector) # 1 for second RGB frame.
+                
+                # NOTE: Any reason to kf[:, :, 0:1] instead of kf[:, :, 0]? -> Same shape with kf16[:,:,1]
+                
+                # NOTE: prev_mask is not binary mask anymore, but a probability map.
+                prev_v1 = self.STCN('encode_value', Fs[:,1], kf16[:,1], prev_mask[:,0:1], prev_mask[:,1:2]) # (N, 512, 1, H/16, W/16)
+                prev_v2 = self.STCN('encode_value', Fs[:,1], kf16[:,1], prev_mask[:,1:2], prev_mask[:,0:1]) # (N, 512, 1, H/16, W/16)
+                # values from previous (frame, predicted mask) pair.
+                prev_v = torch.stack([prev_v1, prev_v2], 1) # (N, 2, 512, 1, H/16, W/16)
+                # values from all previous (frame, mask) pairs.
+                values = torch.cat([ref_v, prev_v], 3) # (N, 2, 512, 2, H/16, W/16)
+
+                del ref_v
+
+                # Segment frame 2 with frame 0 and 1
+                this_logits, this_mask = self.STCN('segment', 
+                        k16[:,:,2], 
+                        kf16_thin[:,2], 
+                        kf8[:,2], 
+                        kf4[:,2], 
+                        k16[:,:,0:2], # NOTE: Key idea: memory key is also from query key k16[:, :, 1] in previous step
+                        values, 
+                        selector)
+
+                out['mask_1'] = prev_mask[:,0:1] # (N, 1, H, W)
+                out['mask_2'] = this_mask[:,0:1] # (N, 1, H, W)
+                out['sec_mask_1'] = prev_mask[:,1:2]
+                out['sec_mask_2'] = this_mask[:,1:2]
+                # NOTE: How to aggregate masks into one mask? Suppose a pixel can be 1 in both masks for 2 objects
+                
+                out['logits_1'] = prev_logits # (N, 3, H, W)
+                out['logits_2'] = this_logits # (N, 3, H, W)
+
+            if self._do_log or self._is_train:
+                losses = self.loss_computer.compute({**data, **out}, it)
+
+            # Backward pass
+            # This should be done outside autocast
+            # but I trained it like this and it worked fine
+            # so I am keeping it this way for reference
+            self.optimizer.zero_grad(set_to_none=True)
+            if self.para['amp']:
+                self.scaler.scale(losses['total_loss']).backward()
+                self.scaler.step(self.optimizer)
+                self.scaler.update()
+            else:
+                losses['total_loss'].backward() 
+                self.optimizer.step()
+            self.scheduler.step()
+
+    def save(self, it):
+        if self.save_path is None:
+            print('Saving has been disabled.')
+            return
+        
+        os.makedirs(os.path.dirname(self.save_path), exist_ok=True)
+        model_path = self.save_path + ('_%s.pth' % it)
+        torch.save(self.STCN.module.state_dict(), model_path)
+        print('Model saved to %s.' % model_path)
+
+        self.save_checkpoint(it)
+
+    def save_checkpoint(self, it):
+        if self.save_path is None:
+            print('Saving has been disabled.')
+            return
+
+        os.makedirs(os.path.dirname(self.save_path), exist_ok=True)
+        checkpoint_path = self.save_path + '_checkpoint.pth'
+        checkpoint = { 
+            'it': it,
+            'network': self.STCN.module.state_dict(),
+            'optimizer': self.optimizer.state_dict(),
+            'scheduler': self.scheduler.state_dict()}
+        torch.save(checkpoint, checkpoint_path)
+
+        print('Checkpoint saved to %s.' % checkpoint_path)
+
+    def load_model(self, path):
+        # This method loads everything and should be used to resume training
+        map_location = 'cuda:%d' % self.local_rank
+        checkpoint = torch.load(path, map_location={'cuda:0': map_location})
+
+        it = checkpoint['it']
+        network = checkpoint['network']
+        optimizer = checkpoint['optimizer']
+        scheduler = checkpoint['scheduler']
+
+        map_location = 'cuda:%d' % self.local_rank
+        self.STCN.module.load_state_dict(network)
+        self.optimizer.load_state_dict(optimizer)
+        self.scheduler.load_state_dict(scheduler)
+
+        print('Model loaded.')
+
+        return it
+
+    def load_network(self, path):
+        # This method loads only the network weight and should be used to load a pretrained model
+        map_location = 'cuda:%d' % self.local_rank
+        src_dict = torch.load(path, map_location={'cuda:0': map_location})
+
+        # Maps SO weight (without other_mask) to MO weight (with other_mask)
+        for k in list(src_dict.keys()):
+            if k == 'value_encoder.conv1.weight':
+                if src_dict[k].shape[1] == 4:
+                    pads = torch.zeros((64,1,7,7), device=src_dict[k].device)
+                    nn.init.orthogonal_(pads)
+                    src_dict[k] = torch.cat([src_dict[k], pads], 1)
+
+        self.STCN.module.load_state_dict(src_dict)
+        print('Network weight loaded:', path)
+
+    def train(self):
+        self._is_train = True
+        self._do_log = True
+        # Shall be in eval() mode to freeze BN parameters
+        self.STCN.eval()
+        return self
+
+    def val(self):
+        self._is_train = False
+        self._do_log = True
+        self.STCN.eval()
+        return self
+
+    def test(self):
+        self._is_train = False
+        self._do_log = False
+        self.STCN.eval()
+        return self
 

@@ -127,13 +127,13 @@ class StaticTransformDataset(Dataset):
         info = {}
         info['name'] = self.im_list[idx]
 
-        cls_gt = np.zeros((3, 384, 384), dtype=np.int)
+        cls_gt = np.zeros((3, 384, 384), dtype=int)
         cls_gt[masks[:,0] > 0.5] = 1
 
         data = {
-            'rgb': images,
-            'gt': masks,
-            'cls_gt': cls_gt,
+            'rgb': images,      # (3, 3, 384, 384)  -> torch.Tensor
+            'gt': masks,        # (3, 1, 384, 384)  -> torch.Tensor
+            'cls_gt': cls_gt,   # (3, 384, 384)     -> np.ndarray
             'info': info
         }
 

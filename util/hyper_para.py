@@ -15,18 +15,18 @@ class HyperParameters():
         # Data parameters
         parser.add_argument('--static_root', help='Static training data root', default='../static')
         parser.add_argument('--bl_root', help='Blender training data root', default='../BL30K')
-        parser.add_argument('--yv_root', help='YouTubeVOS data root', default='/Users/huyanh/Downloads/YouTube_VOS/train')
-        parser.add_argument('--davis_root', help='DAVIS data root', default='/Users/huyanh/Downloads/DAVIS_2017/DAVIS_trainval')
+        parser.add_argument('--yv_root', help='YouTubeVOS data root', default='../YouTube')
+        parser.add_argument('--davis_root', help='DAVIS data root', default='../DAVIS')
 
-        parser.add_argument('--stage', help='Training stage (0-static images, 1-Blender dataset, 2-DAVIS+YouTubeVOS (300K), 3-DAVIS+YouTubeVOS (150K))', type=int, default=0)
+        parser.add_argument('--stage', help='Training stage (0-static images, 1-Blender dataset, 2-DAVIS+YouTubeVOS (300K), 3-DAVIS+YouTubeVOS (150K))', type=int, default=3)
         parser.add_argument('--num_workers', help='Number of datalaoder workers per process', type=int, default=8)
 
         # Generic learning parameters
-        parser.add_argument('-b', '--batch_size', help='Default is dependent on the training stage, see below', default=None, type=int)
-        parser.add_argument('-i', '--iterations', help='Default is dependent on the training stage, see below', default=None, type=int)
+        parser.add_argument('-b', '--batch_size', help='Default is dependent on the training stage, see below', default=8, type=int)
+        parser.add_argument('-i', '--iterations', help='Default is dependent on the training stage, see below', default=20000, type=int)
         parser.add_argument('--steps', help='Default is dependent on the training stage, see below', nargs="*", default=None, type=int)
 
-        parser.add_argument('--lr', help='Initial learning rate', type=float)
+        parser.add_argument('--lr', help='Initial learning rate', type=float, default=0.001)
         parser.add_argument('--gamma', help='LR := LR*gamma at every decay step', default=0.1, type=float)
 
         # Loading

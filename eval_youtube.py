@@ -1,5 +1,5 @@
 """
-YouTubeVOS has a label structure that is more complicated than DAVIS 
+YouTubeVOS has a label structure that is more complicated than DAVIS
 Labels might not appear on the first frame (there might be no labels at all in the first frame)
 Labels might not even appear on the same frame (i.e. Object 0 at frame 10, and object 1 at frame 15)
 0 does not mean background -- it is simply "no-label"
@@ -30,6 +30,8 @@ from inference_core_yv import InferenceCore
 
 from progressbar import progressbar
 
+os.environ['CUDA_VISIBLE_DEVICES'] = '5'
+
 """
 Arguments loading
 """
@@ -44,7 +46,7 @@ Otherwise only a subset will be outputted, as determined by meta.json to save di
 For ensemble, all the sources must have this setting unified.
 """, action='store_true')
 
-parser.add_argument('--output')
+parser.add_argument('--output', default='./test_output')
 parser.add_argument('--split', help='valid/test', default='valid')
 parser.add_argument('--top', type=int, default=20)
 parser.add_argument('--amp', action='store_true')
@@ -68,6 +70,8 @@ if not args.output_all:
 
 # Setup Dataset
 test_dataset = YouTubeVOSTestDataset(data_root=yv_path, split=args.split)
+
+# Because each video has different number of frames -> have to use batch_size=1
 test_loader = DataLoader(test_dataset, batch_size=1, shuffle=False, num_workers=4)
 
 # Load our checkpoint
@@ -87,8 +91,8 @@ prop_model.load_state_dict(prop_saved)
 for data in progressbar(test_loader, max_value=len(test_loader), redirect_stdout=True):
 
     with torch.cuda.amp.autocast(enabled=args.amp):
-        rgb = data['rgb']
-        msk = data['gt'][0]
+        rgb = data['rgb'] # (1, T, 3, H, W)
+        msk = data['gt'][0] # only first mask: (num_objects, T, 1, H, W), but only the first one is not all 0s
         info = data['info']
         name = info['name'][0]
         num_objects = len(info['labels'][0])
@@ -107,7 +111,8 @@ for data in progressbar(test_loader, max_value=len(test_loader), redirect_stdout
             req_frames_names = set(req_frames)
             req_frames = []
             for fi in range(rgb.shape[1]):
-                frame_name = info['frames'][fi][0][:-4]
+                # Loop over frames in a video sequence
+                frame_name = info['frames'][fi][0][:-4] # remove '.jpg'
                 if frame_name in req_frames_names:
                     req_frames.append(fi)
             req_frames = sorted(req_frames)
@@ -115,9 +120,14 @@ for data in progressbar(test_loader, max_value=len(test_loader), redirect_stdout
         # Frames with labels, but they are not exhaustively labeled
         frames_with_gt = sorted(list(gt_obj.keys()))
 
-        processor = InferenceCore(prop_model, rgb, num_objects=num_objects, top_k=top_k, 
-                                    mem_every=args.mem_every, include_last=args.include_last, 
-                                    req_frames=req_frames)
+        processor = InferenceCore(prop_model,
+                                  rgb,
+                                  num_objects=num_objects,
+                                  top_k=top_k,
+                                  mem_every=args.mem_every,
+                                  include_last=args.include_last,
+                                  req_frames=req_frames)
+
         # min_idx tells us the starting point of propagation
         # Propagating before there are labels is not useful
         min_idx = 99999
@@ -130,12 +140,12 @@ for data in progressbar(test_loader, max_value=len(test_loader), redirect_stdout
 
             # Append the background label
             with_bg_msk = torch.cat([
-                1 - torch.sum(msk[:,frame_idx], dim=0, keepdim=True),
+                1 - torch.sum(msk[:,frame_idx], dim=0, keepdim=True), # Create a binary background mask where 1 is background
                 msk[:,frame_idx],
             ], 0).cuda()
 
             # We perform propagation from the current frame to the next frame with label
-            if i == len(frames_with_gt) - 1:
+            if i == len(frames_with_gt) - 1: # last frame with gt?
                 processor.interact(with_bg_msk, frame_idx, rgb.shape[1], obj_idx)
             else:
                 processor.interact(with_bg_msk, frame_idx, frames_with_gt[i+1]+1, obj_idx)
@@ -155,7 +165,7 @@ for data in progressbar(test_loader, max_value=len(test_loader), redirect_stdout
         for i in range(1, num_objects+1):
             backward_idx = info['label_backward'][i].item()
             idx_masks[out_masks==i] = backward_idx
-        
+
         # Save the results
         this_out_path = path.join(out_path, 'Annotations', name)
         os.makedirs(this_out_path, exist_ok=True)

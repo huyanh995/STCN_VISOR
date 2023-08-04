@@ -55,7 +55,7 @@ class LossComputer:
     def compute(self, data, it):
         losses = defaultdict(int)
 
-        b, s, _, _, _ = data['gt'].shape
+        b, s, _, _, _ = data['gt'].shape # (N, T, 1, H, W)
         selector = data.get('selector', None)
 
         for i in range(1, s):
@@ -63,8 +63,10 @@ class LossComputer:
             # Well it's not a lot of iterations anyway
             for j in range(b):
                 if selector is not None and selector[j][1] > 0.5:
+                    # Sequence has second object, evaluate all 3 logits masks
                     loss, p = self.bce(data['logits_%d'%i][j:j+1], data['cls_gt'][j:j+1,i], it)
                 else:
+                    # Otherwise, only evaluate first 2 logits masks
                     loss, p = self.bce(data['logits_%d'%i][j:j+1,:2], data['cls_gt'][j:j+1,i], it)
 
                 losses['loss_%d'%i] += loss / b

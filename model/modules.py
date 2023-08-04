@@ -121,24 +121,25 @@ class ValueEncoder(nn.Module):
 
     def forward(self, image, key_f16, mask, other_masks):
         """
-        image: (B, T, C=3, H, W)
-        key_f16: (B, T, 1024, H/16, W/16)
-        mask: (B, T, C=1, H, W)
-        other_masks: (B, T, C=1, H, W) # Will it be stacked in channel dimension?
+        Training: Encode ONE image (T=1), kf16 feature from key encoder, mask of one object, and other masks of second object
+            image: (N, 3, H, W)
+            key_f16: (N, 1024, H/16, W/16)
+            mask: (N, 1, H, W)
+            other_masks: (N, 1, H, W)
+        Inference: TODO
         """
         # key_f16 is the feature from the key encoder
 
-        f = torch.cat([image, mask, other_masks], 1) # (B, T, C=5, H, W)
-
+        f = torch.cat([image, mask, other_masks], 1) # (N, 5, H, W)
         x = self.conv1(f)
         x = self.bn1(x)
-        x = self.relu(x)   # 1/2, 64
-        x = self.maxpool(x)  # 1/4, 64
-        x = self.layer1(x)   # 1/4, 64
-        x = self.layer2(x) # 1/8, 128
-        x = self.layer3(x) # 1/16, 256
+        x = self.relu(x)    # (N, 64, H/2, W/2)
+        x = self.maxpool(x) # (N, 64, H/4, W/4)
+        x = self.layer1(x)  # (N, 64, H/4, W/4)
+        x = self.layer2(x)  # (N, 128, H/8, W/8)
+        x = self.layer3(x)  # (N, 256, H/16, W/16)
 
-        x = self.fuser(x, key_f16) # (B, T, 256 + 256, H/16, W/16)
+        x = self.fuser(x, key_f16) # (B, 256 + 256, H/16, W/16)
 
         return x
 

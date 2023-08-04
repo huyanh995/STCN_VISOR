@@ -26,49 +26,66 @@ class Decoder(nn.Module):
         self.pred = nn.Conv2d(256, 1, kernel_size=(3,3), padding=(1,1), stride=1)
 
     def forward(self, f16, f8, f4):
-        x = self.compress(f16)
-        x = self.up_16_8(f8, x)
-        x = self.up_8_4(f4, x)
+        """
+        f16: query feature read from memory (N, 1024, H/16, W/16)
+        f8:  query feature from key encoder on query frame (N, 512, H/8, W/8)
+        f4:  same as f8: (N, 256, H/4, W/4)
+        """
+        x = self.compress(f16)  # (N, 512, H/16, W/16)
+        x = self.up_16_8(f8, x) # (N, 256, H/8, W/8)
+        x = self.up_8_4(f4, x)  # (N, 256, H/4, W/4)
 
-        x = self.pred(F.relu(x))
-        
-        x = F.interpolate(x, scale_factor=4, mode='bilinear', align_corners=False)
+        x = self.pred(F.relu(x))# (N, 1, H/4, W/4)
+
+        x = F.interpolate(x, scale_factor=4, mode='bilinear', align_corners=False) # (N, 1, H, W) -> Original mask size
         return x
 
 
 class MemoryReader(nn.Module):
     def __init__(self):
         super().__init__()
- 
+
     def get_affinity(self, mk, qk):
+        """
+        mk := memory key: (N, 64, 1, H/16, W/16)
+                -> Can be extend to (N, 64, T, H/16, W/16) for larger memory
+        qk := query key : (N, 64, H/16, W/16)
+        """
         B, CK, T, H, W = mk.shape
-        mk = mk.flatten(start_dim=2)
-        qk = qk.flatten(start_dim=2)
+        mk = mk.flatten(start_dim=2) # (N, 64 * T, H/16*W/16)
+        qk = qk.flatten(start_dim=2) # (N, 64, H/16*W/16)
 
         # See supplementary material
         a_sq = mk.pow(2).sum(1).unsqueeze(2)
         ab = mk.transpose(1, 2) @ qk
 
         affinity = (2*ab-a_sq) / math.sqrt(CK)   # B, THW, HW
-        
+
         # softmax operation; aligned the evaluation style
         maxes = torch.max(affinity, dim=1, keepdim=True)[0]
         x_exp = torch.exp(affinity - maxes)
         x_exp_sum = torch.sum(x_exp, dim=1, keepdim=True)
-        affinity = x_exp / x_exp_sum 
+        affinity = x_exp / x_exp_sum
 
-        return affinity
+        return affinity # (N, THW, HW), note that H <- H/16, W <- W/16
 
     def readout(self, affinity, mv, qv):
+        """
+        affinity: (N, T * HW, HW): pixel-wise scores from query to all frames in memory
+        mv := memory value: concatenate of feature from value encoder on each (frame, mask) # TODO: check
+                (8, 512, T, 24, 24)
+        qv := query value but actually f16_thin from query key
+                (8, 512, 24, 24)
+        """
         B, CV, T, H, W = mv.shape
 
-        mo = mv.view(B, CV, T*H*W) 
-        mem = torch.bmm(mo, affinity) # Weighted-sum B, CV, HW
-        mem = mem.view(B, CV, H, W)
+        mo = mv.view(B, CV, T*H*W)  # (N, 512, T * HW)
+        mem = torch.bmm(mo, affinity) # (N, 512, T * HW) @ (N, T * HW, HW) -> (N, 512, HW)
+        mem = mem.view(B, CV, H, W) # (N, 512, H, W)
 
         mem_out = torch.cat([mem, qv], dim=1)
 
-        return mem_out
+        return mem_out # (N, 1024, H, W) with H <- H/16, W <- W/16
 
 
 class STCN(nn.Module):
@@ -78,9 +95,9 @@ class STCN(nn.Module):
 
         self.key_encoder = KeyEncoder()
         if single_object:
-            self.value_encoder = ValueEncoderSO() 
+            self.value_encoder = ValueEncoderSO()
         else:
-            self.value_encoder = ValueEncoder() 
+            self.value_encoder = ValueEncoder()
 
         # Projection from f16 feature space to key space
         self.key_proj = KeyProjection(1024, keydim=64)
@@ -92,81 +109,90 @@ class STCN(nn.Module):
         self.decoder = Decoder()
 
     def aggregate(self, prob):
+        """
+        Soft-aggregation to combine multiple probability masks. Ideas from STM paper.
+        prob: probability of mask for multiple objects (N, num_objects, H, W)
+        Note: in the STM paper, p_i,m = softmax(logit(pred_p_i,m)) but seems like they didn't use
+        the true softmax = exp(x) / sum(exp(x)) but instead use exp(x) = x / (1-x).
+        """
         new_prob = torch.cat([
-            torch.prod(1-prob, dim=1, keepdim=True),
-            prob
-        ], 1).clamp(1e-7, 1-1e-7)
-        logits = torch.log((new_prob /(1-new_prob)))
-        return logits
+            torch.prod(1-prob, dim=1, keepdim=True), # prod of probility of not being object, (N, 1, H, W)
+            prob # (N, 2, H, W)
+        ], 1).clamp(1e-7, 1-1e-7) # (N, 3, H, W)
+        new_prob = new_prob / (1 - new_prob) # demonimator of Eq (1) in STM supplementary.
+        logits = torch.log(new_prob)  # Using log to avoid numerical instability.
+        # logits = torch.log((new_prob /(1-new_prob))) # original code
+        return logits # (N, 3, H, W)
 
-    def encode_key(self, frame): 
+    def encode_key(self, frame):
         """
         Encode frames into key space.
-        Input: frame -> (B, T, C, H, W)
+        Input: frame -> (N, T, 3, H, W)
+        During training, T = 3
         """
         b, t = frame.shape[:2]
 
-        f16, f8, f4 = self.key_encoder(frame.flatten(start_dim=0, end_dim=1)) # input: (B*T, C, H, W)
-        k16 = self.key_proj(f16) # (B*T, 64, H/16, W/16)
-        f16_thin = self.key_comp(f16) # (B*T, 512, H/16, W/16)
+        f16, f8, f4 = self.key_encoder(frame.flatten(start_dim=0, end_dim=1)) # input: (N*T, C, H, W)
+        # f16: (N*T, 1024, H/16, W/16)
+        # f8: (N*T, 512, H/8, W/8)
+        # f4: (N*T, 256, H/4, W/4)
+        k16 = self.key_proj(f16)        # (N*T, 64, H/16, W/16)
+        f16_thin = self.key_comp(f16)   # (N*T, 512, H/16, W/16)
 
-        # B*C*T*H*W
-        k16 = k16.view(b, t, *k16.shape[-3:]).transpose(1, 2).contiguous() # (B, T, 64, H/16, W/16)
-
-        # B*T*C*H*W
-        f16_thin = f16_thin.view(b, t, *f16_thin.shape[-3:]) # (B, T, 512, H/16, W/16)
-        f16 = f16.view(b, t, *f16.shape[-3:])   # (B, T, 1024, H/16, W/16)
-        f8 = f8.view(b, t, *f8.shape[-3:])      # (B, T, 512, H/8, W/8)
-        f4 = f4.view(b, t, *f4.shape[-3:])      # (B, T, 256, H/4, W/4)
-        
-        print(f'DEBUG STCN encode_key: input: frame {frame.shape}, \
-                                    output: k16: {k16.shape}, \
-                                    f16_thin: {f16_thin.shape}, \
-                                    f16: {f16.shape}, \
-                                    f8: {f8.shape}, \
-                                    f4: {f4.shape}')
+        k16 = k16.view(b, t, *k16.shape[-3:]).transpose(1, 2).contiguous() # (N, 64, T, H/16, W/16)
+        f16_thin = f16_thin.view(b, t, *f16_thin.shape[-3:]) # (N, T, 512, H/16, W/16)
+        f16 = f16.view(b, t, *f16.shape[-3:])   # (N, T, 1024, H/16, W/16)
+        f8 = f8.view(b, t, *f8.shape[-3:])      # (N, T, 512, H/8, W/8)
+        f4 = f4.view(b, t, *f4.shape[-3:])      # (N, T, 256, H/4, W/4)
 
         return k16, f16_thin, f16, f8, f4
 
-    def encode_value(self, frame, kf16, mask, other_mask=None): 
+    def encode_value(self, frame, kf16, mask, other_mask=None):
         """
-        Extract memory key/value for a frame
-        frame: (B, T, C, H, W)
-        kf16: (B, T, 1024, H/16, W/16)
-        mask: (B, T, C=1, H, W)
-        other_mask: (B, T, C=1, H, W)
-        """ 
+        Training:
+            Extract memory key/value for a frame and binary mask of an object,
+                other_mask is binary mask of second object.
+            frame:      (N, C=3, H, W)
+            kf16:       (N, 1024, H/16, W/16)
+            mask:       (N, C=1, H, W)
+            other_mask: (N, C=1, H, W)
+        Inference: TODO
+        """
         if self.single_object:
             f16 = self.value_encoder(frame, kf16, mask)
         else:
-            f16 = self.value_encoder(frame, kf16, mask, other_mask)
-        print(f'DEBUG STCN encode_value: input f16: {f16.shape}, \
-                                    kf16 {kf16.shape}, \
-                                    mask: {mask.shape}, \
-                                    other_mask: {other_mask.shape if other_mask is not None else None}, \
-                                    output: {f16.shape}')
-        
-        return f16.unsqueeze(2) # B*512*T*H*W
+            f16 = self.value_encoder(frame, kf16, mask, other_mask) # (N, 512, H/16, W/16)
 
-    def segment(self, qk16, qv16, qf8, qf4, mk16, mv16, selector=None): 
+        return f16.unsqueeze(2) # (N, 512, T=1, H/16, W/16)
+
+    def segment(self, qk16, qv16, qf8, qf4, mk16, mv16, selector=None):
         # q - query, m - memory
-        # qv16 is f16_thin above
-        affinity = self.memory.get_affinity(mk16, qk16) # mk -> memory key, qk -> query key
-        
+        # qk16 := k16
+        # qv16 := f16_thin
+        # qf8 := f8
+        # qf4 := f4
+        # mv16 := k16 of previous frame -> memory key
+        # mv16 := memory value from previous frame
+
+        # Compute affinity between f16 feature from RGB query and memory
+        affinity = self.memory.get_affinity(mk16, qk16)
+
         if self.single_object:
             logits = self.decoder(self.memory.readout(affinity, mv16, qv16), qf8, qf4)
             prob = torch.sigmoid(logits)
         else:
             logits = torch.cat([
-                self.decoder(self.memory.readout(affinity, mv16[:,0], qv16), qf8, qf4),
-                self.decoder(self.memory.readout(affinity, mv16[:,1], qv16), qf8, qf4),
-            ], 1)
+                self.decoder(self.memory.readout(affinity, mv16[:,0], qv16), qf8, qf4), # (N, 1, H, W)
+                self.decoder(self.memory.readout(affinity, mv16[:,1], qv16), qf8, qf4), # (N, 1, H, W)
+            ], 1) # (N, 2, H, W)
 
-            prob = torch.sigmoid(logits)
+            prob = torch.sigmoid(logits) # (N, 2, H, W)
+            # selector (in training, only 2 selected objects) -> (N, 2) -> (N, 2, 1, 1) after double unsqueeze
+            # cancel out the probability of not selected object (e.g sequence only has 1 object)
             prob = prob * selector.unsqueeze(2).unsqueeze(2)
 
-        logits = self.aggregate(prob)
-        prob = F.softmax(logits, dim=1)[:, 1:]
+        logits = self.aggregate(prob) # (N, 3, H, W)
+        prob = F.softmax(logits, dim=1)[:, 1:] # (N, 2, H, W), ignore channel (1-prob) * (1-prob)
 
         return logits, prob
 

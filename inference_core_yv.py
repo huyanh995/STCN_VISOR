@@ -8,7 +8,7 @@ from util.tensor_util import pad_divide_by
 
 
 class InferenceCore:
-    def __init__(self, prop_net:STCN, images, num_objects, top_k=20, 
+    def __init__(self, prop_net:STCN, images, num_objects, top_k=20,
                     mem_every=5, include_last=False, req_frames=None):
         self.prop_net = prop_net
         self.mem_every = mem_every
@@ -36,14 +36,14 @@ class InferenceCore:
 
         # Background included, not always consistent (i.e. sum up to 1)
         self.prob = torch.zeros((self.k+1, t, 1, nh, nw), dtype=torch.float32, device=self.device)
-        self.prob[0] = 1e-7
+        self.prob[0] = 1e-7 # Set a small value for background
 
         self.t, self.h, self.w = t, h, w
         self.nh, self.nw = nh, nw
         self.kh = self.nh//16
         self.kw = self.nw//16
 
-        # list of objects with usable memory
+        # list of objects with usable memory -> Wdym?
         self.enabled_obj = []
 
         self.mem_banks = dict()
@@ -70,7 +70,7 @@ class InferenceCore:
         step = +1
         end = closest_ti - 1
 
-        for ti in this_range: 
+        for ti in this_range:
             is_mem_frame = (abs(ti-last_ti) >= self.mem_every)
             # Why even work on it if it is not required for memory/output
             if (not is_mem_frame) and (not self.include_last) and (self.req_frames is not None) and (ti not in self.req_frames):
@@ -101,6 +101,13 @@ class InferenceCore:
         return closest_ti
 
     def interact(self, mask, frame_idx, end_idx, obj_idx):
+        """
+        Input:
+        mask: (1 + num_objects, C=1, H, W), binary mask
+        frame_idx: int
+        end_idx: int, = T
+        obj_idx: list of objects that are labeled (current frame or so far?)
+        """
         # In youtube mode, we interact with a subset of object id at a time
         mask, _ = pad_divide_by(mask.cuda(), 16)
 
@@ -108,16 +115,16 @@ class InferenceCore:
         self.enabled_obj.extend(obj_idx)
 
         # Set other prob of mask regions to zero
-        mask_regions = (mask[1:].sum(0) > 0.5)
-        self.prob[:, frame_idx, mask_regions] = 0
-        self.prob[obj_idx, frame_idx] = mask[obj_idx]
+        mask_regions = (mask[1:].sum(0) > 0.5) # region of mask that has objects
+        self.prob[:, frame_idx, mask_regions] = 0 # set background mask to 0
+        self.prob[obj_idx, frame_idx] = mask[obj_idx] # set object mask to mask
 
         self.prob[:, frame_idx] = aggregate(self.prob[1:, frame_idx], keep_bg=True)
 
         # KV pair for the interacting frame
-        key_k, _, qf16, _, _ = self.encode_key(frame_idx)
-        key_v = self.prop_net.encode_value(self.images[:,frame_idx].cuda(), qf16, self.prob[self.enabled_obj,frame_idx].cuda())
-        key_k = key_k.unsqueeze(2)
+        key_k, _, qf16, _, _ = self.encode_key(frame_idx) # k16, kf16_thin, f16, f8, f4
+        key_v = self.prop_net.encode_value(self.images[:,frame_idx].cuda(), qf16, self.prob[self.enabled_obj,frame_idx].cuda()) # (num_objects, 512, 1, H/16, W/16)
+        key_k = key_k.unsqueeze(2) # (1, 64, 1, H/16, W/16)
 
         # Propagate
         self.do_pass(key_k, key_v, frame_idx, end_idx)

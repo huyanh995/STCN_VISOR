@@ -13,6 +13,20 @@ from dataset.util import all_to_onehot
 
 
 class YouTubeVOSTestDataset(Dataset):
+    """ YouTubeVOS dataset, structure:
+    ├── all_frames
+    │   └── valid_all_frames
+    ├── train
+    │   ├── Annotations
+    │   └── JPEGImages
+    ├── train_480p
+    │   ├── Annotations
+    │   └── JPEGImages
+    └── valid
+        ├── Annotations
+        └── JPEGImages
+
+    """
     def __init__(self, data_root, split, res=480):
         self.image_dir = path.join(data_root, 'all_frames', split+'_all_frames', 'JPEGImages')
         self.mask_dir = path.join(data_root, split, 'Annotations')
@@ -55,7 +69,7 @@ class YouTubeVOSTestDataset(Dataset):
         video = self.videos[idx]
         info = {}
         info['name'] = video
-        info['frames'] = self.frames[video] 
+        info['frames'] = self.frames[video]
         info['size'] = self.shape[video] # Real sizes
         info['gt_obj'] = {} # Frames with labelled objects
 
@@ -69,7 +83,7 @@ class YouTubeVOSTestDataset(Dataset):
         for i, f in enumerate(frames):
             img = Image.open(path.join(vid_im_path, f)).convert('RGB')
             images.append(self.im_transform(img))
-            
+
             mask_file = path.join(vid_gt_path, f.replace('.jpg','.png'))
             if path.exists(mask_file):
                 masks.append(np.array(Image.open(mask_file).convert('P'), dtype=np.uint8))
@@ -77,12 +91,13 @@ class YouTubeVOSTestDataset(Dataset):
                 this_labels = this_labels[this_labels!=0]
                 info['gt_obj'][i] = this_labels
             else:
-                # Mask not exists -> nothing in it
+                # Mask not exists -> fill 0s
+                # In val and test, only first frame is provided so from T=1 to end are just zeros masks.
                 masks.append(np.zeros(self.shape[video]))
-        
-        images = torch.stack(images, 0)
-        masks = np.stack(masks, 0)
-        
+
+        images = torch.stack(images, 0) # (n_frames, 3, H, W)
+        masks = np.stack(masks, 0) # (n_frames, H, W)
+
         # Construct the forward and backward mapping table for labels
         # this is because YouTubeVOS's labels are sometimes not continuous
         # while we want continuous ones (for one-hot)
@@ -96,18 +111,18 @@ class YouTubeVOSTestDataset(Dataset):
             info['label_convert'][l] = idx
             info['label_backward'][idx] = l
             idx += 1
-        masks = torch.from_numpy(all_to_onehot(masks, labels)).float()
+        masks = torch.from_numpy(all_to_onehot(masks, labels)).float() # (n_labels, n_frames, H, W)
 
         # Resize to 480p
-        masks = self.mask_transform(masks)
-        masks = masks.unsqueeze(2)
+        masks = self.mask_transform(masks) # (n_labels, n_frames, 480, 854) # or 853
+        masks = masks.unsqueeze(2) # (n_labels, n_frames, 1, 480, 854)
 
         info['labels'] = labels
 
         data = {
-            'rgb': images,
-            'gt': masks,
-            'info': info,
+            'rgb': images,  # (n_frames, 3, H, W) -> torch.Tensor
+            'gt': masks,    # (n_labels, n_frames, 1, H, W) -> torch.Tensor
+            'info': info,   # has labels, label mappings inside
         }
 
         return data

@@ -9,7 +9,7 @@ def aggregate(prob, keep_bg=False):
         torch.prod(1-prob, dim=0, keepdim=True),
         prob
     ], 0).clamp(1e-7, 1-1e-7)
-    logits = torch.log((new_prob /(1-new_prob)))
+    logits = torch.log((new_prob /(1-new_prob))) # (1 + num_objects, H, W)
 
     if keep_bg:
         return F.softmax(logits, dim=0)

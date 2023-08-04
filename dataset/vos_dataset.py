@@ -26,7 +26,7 @@ class VOSDataset(Dataset):
         self.im_root = im_root
         self.gt_root = gt_root
         self.max_jump = max_jump
-        self.is_bl = is_bl
+        self.is_bl = is_bl # For BL30K set.
 
         self.videos = []
         self.frames = {}
@@ -39,12 +39,14 @@ class VOSDataset(Dataset):
                     continue
             frames = sorted(os.listdir(os.path.join(self.im_root, vid)))
             if len(frames) < 3:
+                # Skip videos with less than 3 frames
                 continue
             self.frames[vid] = frames
             self.videos.append(vid)
 
         print('%d out of %d videos accepted in %s.' % (len(self.videos), len(vid_list), im_root))
 
+        # Data augmentation
         # These set of transform is the same for im/gt pairs, but different among the 3 sampled frames
         self.pair_im_lone_transform = transforms.Compose([
             transforms.ColorJitter(0.01, 0.01, 0.01, 0),
@@ -128,14 +130,18 @@ class VOSDataset(Dataset):
                 png_name = frames[f_idx][:-4] + '.png'
                 info['frames'].append(jpg_name)
 
+                # Transforms apply the same for all pairs in the sequence
+                # Because it contains random flip, which greatly affects model if applied to each frame independently.
                 reseed(sequence_seed)
                 this_im = Image.open(path.join(vid_im_path, jpg_name)).convert('RGB')
                 this_im = self.all_im_dual_transform(this_im)
                 this_im = self.all_im_lone_transform(this_im)
+
                 reseed(sequence_seed)
                 this_gt = Image.open(path.join(vid_gt_path, png_name)).convert('P')
                 this_gt = self.all_gt_dual_transform(this_gt)
 
+                # Transforms apply randomly for each pair (RandomAffine)
                 pairwise_seed = np.random.randint(2147483647)
                 reseed(pairwise_seed)
                 this_im = self.pair_im_dual_transform(this_im)
@@ -143,15 +149,15 @@ class VOSDataset(Dataset):
                 reseed(pairwise_seed)
                 this_gt = self.pair_gt_dual_transform(this_gt)
 
-                this_im = self.final_im_transform(this_im)
-                this_gt = np.array(this_gt)
+                this_im = self.final_im_transform(this_im) # (3, 384, 384)
+                this_gt = np.array(this_gt) # (384, 384)
 
-                images.append(this_im)
-                masks.append(this_gt)
+                images.append(this_im) # list of tensors
+                masks.append(this_gt) # list of np arrays
 
             images = torch.stack(images, 0)
 
-            labels = np.unique(masks[0])
+            labels = np.unique(masks[0]) # (3, 3, H, W)
             # Remove background
             labels = labels[labels!=0]
 
@@ -168,8 +174,9 @@ class VOSDataset(Dataset):
                         elif max((masks[1]==l).sum(), (masks[2]==l).sum()) < 20*20:
                             good_lables.append(l)
                 labels = np.array(good_lables, dtype=np.uint8)
-            
+
             if len(labels) == 0:
+                # No label in any frame -> Retry
                 target_object = -1 # all black if no objects
                 has_second_object = False
                 trials += 1
@@ -181,25 +188,25 @@ class VOSDataset(Dataset):
                     second_object = np.random.choice(labels)
                 break
 
-        masks = np.stack(masks, 0)
-        tar_masks = (masks==target_object).astype(np.float32)[:,np.newaxis,:,:]
+        masks = np.stack(masks, 0) # (3, H, W)
+        tar_masks = (masks==target_object).astype(np.float32)[:,np.newaxis,:,:] # (3, 1, H, W)
         if has_second_object:
-            sec_masks = (masks==second_object).astype(np.float32)[:,np.newaxis,:,:]
+            sec_masks = (masks==second_object).astype(np.float32)[:,np.newaxis,:,:] # (3, 1, H, W)
             selector = torch.FloatTensor([1, 1])
         else:
             sec_masks = np.zeros_like(tar_masks)
             selector = torch.FloatTensor([1, 0])
 
-        cls_gt = np.zeros((3, 384, 384), dtype=np.int)
+        cls_gt = np.zeros((3, 384, 384), dtype=int) # same shape as masks
         cls_gt[tar_masks[:,0] > 0.5] = 1
         cls_gt[sec_masks[:,0] > 0.5] = 2
 
         data = {
-            'rgb': images,
-            'gt': tar_masks,
-            'cls_gt': cls_gt,
-            'sec_gt': sec_masks,
-            'selector': selector,
+            'rgb': images,          # (N=3, 3, 384, 384)    -> torch.Tensor
+            'gt': tar_masks,        # (N=3, 1, 384, 384)    -> np.array
+            'cls_gt': cls_gt,       # (N=3, 384, 384)       -> np.array
+            'sec_gt': sec_masks,    # (N=3, 1, 384, 384)    -> np.array
+            'selector': selector,   # (2)                   -> torch.FloatTensor
             'info': info,
         }
 

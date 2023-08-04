@@ -44,14 +44,14 @@ class STCN(nn.Module):
         else:
             others = torch.zeros_like(masks)
 
-        f16 = self.value_encoder(frame, kf16.repeat(k,1,1,1), masks, others)
+        f16 = self.value_encoder(frame, kf16.repeat(k,1,1,1), masks, others) # (N, num_objects, 512, H/16, W/16)
 
         return f16.unsqueeze(2)
 
     def encode_key(self, frame):
         f16, f8, f4 = self.key_encoder(frame)
-        k16 = self.key_proj(f16)
-        f16_thin = self.key_comp(f16)
+        k16 = self.key_proj(f16) # from (N, 1024, H/16, W/16) -> (N, 64, H/16, W/16)
+        f16_thin = self.key_comp(f16) # from (N, 1024, H/16, W/16) -> (N, 512, H/16, W/16)
 
         return k16, f16_thin, f16, f8, f4
 
