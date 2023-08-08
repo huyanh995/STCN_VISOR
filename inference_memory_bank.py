@@ -4,7 +4,7 @@ import torch
 
 def softmax_w_top(x, top):
     values, indices = torch.topk(x, k=top, dim=1)
-    x_exp = values.exp_()
+    x_exp = values.exp_() # (1, 20, 1620)
 
     x_exp /= torch.sum(x_exp, dim=1, keepdim=True)
     # The types should be the same already
@@ -47,7 +47,7 @@ class MemoryBank:
         _, _, h, w = qk.shape
 
         qk = qk.flatten(start_dim=2)
-        
+
         if self.temp_k is not None:
             mk = torch.cat([self.mem_k, self.temp_k], 2)
             mv = torch.cat([self.mem_v, self.temp_v], 2)
@@ -68,8 +68,8 @@ class MemoryBank:
         # But can always be flushed
         self.temp_k = None
         self.temp_v = None
-        key = key.flatten(start_dim=2)
-        value = value.flatten(start_dim=2)
+        key = key.flatten(start_dim=2) # 1, CK, HW
+        value = value.flatten(start_dim=2) # 1, CV, HW
 
         if self.mem_k is None:
             # First frame, just shove it in

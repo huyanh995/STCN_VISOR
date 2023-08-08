@@ -18,8 +18,8 @@ from model.network import Decoder
 class STCN(nn.Module):
     def __init__(self):
         super().__init__()
-        self.key_encoder = KeyEncoder() 
-        self.value_encoder = ValueEncoder() 
+        self.key_encoder = KeyEncoder()
+        self.value_encoder = ValueEncoder()
 
         # Projection from f16 feature space to key space
         self.key_proj = KeyProjection(1024, keydim=64)
@@ -29,7 +29,7 @@ class STCN(nn.Module):
 
         self.decoder = Decoder()
 
-    def encode_value(self, frame, kf16, masks): 
+    def encode_value(self, frame, kf16, masks):
         k, _, h, w = masks.shape
 
         # Extract memory key/value for a frame with multiple masks
@@ -49,13 +49,13 @@ class STCN(nn.Module):
         return f16.unsqueeze(2)
 
     def encode_key(self, frame):
-        f16, f8, f4 = self.key_encoder(frame)
+        f16, f8, f4 = self.key_encoder(frame) # Prob: f16 is NaN
         k16 = self.key_proj(f16) # from (N, 1024, H/16, W/16) -> (N, 64, H/16, W/16)
         f16_thin = self.key_comp(f16) # from (N, 1024, H/16, W/16) -> (N, 512, H/16, W/16)
 
         return k16, f16_thin, f16, f8, f4
 
-    def segment_with_query(self, mem_bank, qf8, qf4, qk16, qv16): 
+    def segment_with_query(self, mem_bank, qf8, qf4, qk16, qv16):
         k = mem_bank.num_objects
 
         readout_mem = mem_bank.match_memory(qk16)

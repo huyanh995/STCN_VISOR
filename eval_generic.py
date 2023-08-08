@@ -1,5 +1,5 @@
 """
-Generic evaluation script 
+Generic evaluation script
 The segmentation mask for each object when they first appear is required
 (YouTubeVOS style, but dense)
 
@@ -44,16 +44,17 @@ from inference_core_yv import InferenceCore
 
 from progressbar import progressbar
 
+os.environ['CUDA_VISIBLE_DEVICES'] = '1'
 """
 Arguments loading
 """
 parser = ArgumentParser()
-parser.add_argument('--model', default='saves/stcn.pth')
-parser.add_argument('--data_path')
-parser.add_argument('--output')
+parser.add_argument('--model', default='saves/vanilla_2000.pth')
+parser.add_argument('--data_path', default='/data/add_disk1/huyanh/Thesis/VISOR_YTVOS_VAL/val_no_hand/Normal')
+parser.add_argument('--output', default='/data/add_disk1/huyanh/Thesis/Results/test_VISOR')
 parser.add_argument('--top', type=int, default=20)
 parser.add_argument('--amp_off', action='store_true')
-parser.add_argument('--mem_every', default=5, type=int)
+parser.add_argument('--mem_every', default=1, type=int)
 parser.add_argument('--include_last', help='include last frame as temporary memory?', action='store_true')
 args = parser.parse_args()
 
@@ -72,6 +73,7 @@ test_loader = DataLoader(test_dataset, batch_size=1, shuffle=False, num_workers=
 # Load our checkpoint
 top_k = args.top
 prop_model = STCN().cuda().eval()
+# prop_model = STCN().cuda()
 
 # Performs input mapping such that stage 0 model can be loaded
 prop_saved = torch.load(args.model)
@@ -80,18 +82,19 @@ for k in list(prop_saved.keys()):
         if prop_saved[k].shape[1] == 4:
             pads = torch.zeros((64,1,7,7), device=prop_saved[k].device)
             prop_saved[k] = torch.cat([prop_saved[k], pads], 1)
-prop_model.load_state_dict(prop_saved)
+prop_model.load_state_dict(prop_saved, strict=False)
+print(f'Loaded checkpoint from {args.model}')
 
 # Start eval
 for data in progressbar(test_loader, max_value=len(test_loader), redirect_stdout=True):
 
     with torch.cuda.amp.autocast(enabled=args.amp):
-        rgb = data['rgb']
-        msk = data['gt'][0]
+        rgb = data['rgb']                       # (1, seq_length, C=3, H, W)
+        msk = data['gt'][0]                     # (num_object, seq_length, C=1, H, W)
         info = data['info']
         name = info['name'][0]
-        num_objects = len(info['labels'][0])
-        gt_obj = info['gt_obj']
+        num_objects = len(info['labels'][0])    # num objects in provided frames
+        gt_obj = info['gt_obj']                 # dictionary of idx frame and its object, from provided frames
         size = info['size']
         palette = data['palette'][0]
 
@@ -99,30 +102,37 @@ for data in progressbar(test_loader, max_value=len(test_loader), redirect_stdout
 
         # Frames with labels, but they are not exhaustively labeled
         frames_with_gt = sorted(list(gt_obj.keys()))
-        processor = InferenceCore(prop_model, rgb, num_objects=num_objects, top_k=top_k, 
+        processor = InferenceCore(prop_model, rgb, num_objects=num_objects, top_k=top_k,
                                     mem_every=args.mem_every, include_last=args.include_last)
 
         # min_idx tells us the starting point of propagation
         # Propagating before there are labels is not useful
         min_idx = 99999
+        #* Step 1: Get information from provided ground truth masks
         for i, frame_idx in enumerate(frames_with_gt):
             min_idx = min(frame_idx, min_idx)
             # Note that there might be more than one label per frame
-            obj_idx = gt_obj[frame_idx][0].tolist()
+            obj_idx = gt_obj[frame_idx][0].tolist() # Read from ground truth
             # Map the possibly non-continuous labels into a continuous scheme
             obj_idx = [info['label_convert'][o].item() for o in obj_idx]
 
             # Append the background label
             with_bg_msk = torch.cat([
-                1 - torch.sum(msk[:,frame_idx], dim=0, keepdim=True),
+                1 - torch.sum(msk[:,frame_idx], dim=0, keepdim=True), # bg mask
                 msk[:,frame_idx],
-            ], 0).cuda()
+            ], 0).cuda()        # (1 + num_object, H, W)
 
             # We perform propagation from the current frame to the next frame with label
-            if i == len(frames_with_gt) - 1:
-                processor.interact(with_bg_msk, frame_idx, rgb.shape[1], obj_idx)
+            if i == len(frames_with_gt) - 1: # last GT frame
+                processor.interact(with_bg_msk,
+                                   frame_idx,
+                                   rgb.shape[1], # number of frames in sequences
+                                   obj_idx)
             else:
-                processor.interact(with_bg_msk, frame_idx, frames_with_gt[i+1]+1, obj_idx)
+                processor.interact(with_bg_msk,
+                                   frame_idx,
+                                   frames_with_gt[i+1]+1, # What is this?
+                                   obj_idx)
 
         # Do unpad -> upsample to original size (we made it 480p)
         out_masks = torch.zeros((processor.t, 1, *size), dtype=torch.uint8, device='cuda')
@@ -139,7 +149,7 @@ for data in progressbar(test_loader, max_value=len(test_loader), redirect_stdout
         for i in range(1, num_objects+1):
             backward_idx = info['label_backward'][i].item()
             idx_masks[out_masks==i] = backward_idx
-        
+
         # Save the results
         this_out_path = path.join(out_path, name)
         os.makedirs(this_out_path, exist_ok=True)

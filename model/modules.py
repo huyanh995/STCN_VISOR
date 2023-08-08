@@ -171,7 +171,7 @@ class KeyEncoder(nn.Module):
         x = self.maxpool(x)     # (B*T, 64, H/4, W/4)
         f4 = self.res2(x)       # (B*T, 256, H/4, W/4)
         f8 = self.layer2(f4)    # (B*T, 512, H/8, W/8)
-        f16 = self.layer3(f8)   # (B*T, 1024, H/16, W/16)
+        f16 = self.layer3(f8)   # (B*T, 1024, H/16, W/16) -> NaN problem here.
 
         return f16, f8, f4
 

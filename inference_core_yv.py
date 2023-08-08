@@ -35,6 +35,7 @@ class InferenceCore:
         self.k = num_objects
 
         # Background included, not always consistent (i.e. sum up to 1)
+        # Prob for output?
         self.prob = torch.zeros((self.k+1, t, 1, nh, nw), dtype=torch.float32, device=self.device)
         self.prob[0] = 1e-7 # Set a small value for background
 
@@ -76,6 +77,7 @@ class InferenceCore:
             if (not is_mem_frame) and (not self.include_last) and (self.req_frames is not None) and (ti not in self.req_frames):
                 continue
 
+            #* Encode query frame
             k16, qv16, qf16, qf8, qf4 = self.encode_key(ti)
 
             # After this step all keys will have the same size
@@ -109,21 +111,28 @@ class InferenceCore:
         obj_idx: list of objects that are labeled (current frame or so far?)
         """
         # In youtube mode, we interact with a subset of object id at a time
-        mask, _ = pad_divide_by(mask.cuda(), 16)
+        mask, _ = pad_divide_by(mask.cuda(), 16) # (3, 1, 480, 864)
 
         # update objects that have been labeled
-        self.enabled_obj.extend(obj_idx)
+        self.enabled_obj.extend(obj_idx) # TODO: Key here
 
         # Set other prob of mask regions to zero
+        # NOTE: Reason that GT mask output always the same as GT
         mask_regions = (mask[1:].sum(0) > 0.5) # region of mask that has objects
         self.prob[:, frame_idx, mask_regions] = 0 # set background mask to 0
         self.prob[obj_idx, frame_idx] = mask[obj_idx] # set object mask to mask
 
+        # But only 1 object here, there may be another object?
         self.prob[:, frame_idx] = aggregate(self.prob[1:, frame_idx], keep_bg=True)
 
         # KV pair for the interacting frame
+        # Encode GT image
         key_k, _, qf16, _, _ = self.encode_key(frame_idx) # k16, kf16_thin, f16, f8, f4
-        key_v = self.prop_net.encode_value(self.images[:,frame_idx].cuda(), qf16, self.prob[self.enabled_obj,frame_idx].cuda()) # (num_objects, 512, 1, H/16, W/16)
+        key_v = self.prop_net.encode_value(self.images[:, frame_idx].cuda(),
+                                           qf16,
+                                           self.prob[self.enabled_obj,frame_idx].cuda() # act as GT mask but in prob
+                                           # No other mask here (unlike training)
+                                           ) # (num_objects, 512, 1, H/16, W/16)
         key_k = key_k.unsqueeze(2) # (1, 64, 1, H/16, W/16)
 
         # Propagate
