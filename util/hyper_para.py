@@ -9,8 +9,8 @@ class HyperParameters():
         parser = ArgumentParser()
 
         # Enable torch.backends.cudnn.benchmark -- Faster in some cases, test in your own environment
-        parser.add_argument('--gpu_id', type=str, default='7')
-        parser.add_argument('--name', type=str, default='test')
+        parser.add_argument('--gpu_id', type=str, default='5')
+        parser.add_argument('--name', type=str, default='test_VISOR_CB')
         parser.add_argument('--loss', type=str, default='default')
         parser.add_argument('--benchmark', action='store_true')
         parser.add_argument('--no_amp', action='store_true')
@@ -36,7 +36,7 @@ class HyperParameters():
         parser.add_argument('-i', '--iterations', help='Default is dependent on the training stage, see below', default=None, type=int)
         parser.add_argument('--steps', help='Default is dependent on the training stage, see below', nargs="*", default=None, type=int)
 
-        parser.add_argument('--lr', help='Initial learning rate', type=float, default=0.001)
+        parser.add_argument('--lr', help='Initial learning rate', type=float, default=0.0001)
         parser.add_argument('--gamma', help='LR := LR*gamma at every decay step', default=0.1, type=float)
 
         # Loading

@@ -168,6 +168,7 @@ class STCNVISORModel:
                 losses = self.loss_computer.compute({**data, **out}, it, weight)
                 self.log(losses)
 
+
             # Backward pass
             # This should be done outside autocast
             # but I trained it like this and it worked fine
@@ -181,6 +182,8 @@ class STCNVISORModel:
             else:
                 losses['total_loss'].backward()
                 self.optimizer.step()
+
+            nn.utils.clip_grad_norm_(self.STCN.parameters(), 1.0)
             self.scheduler.step()
 
         if it % self.para['log_every'] == 0 and it != 0:

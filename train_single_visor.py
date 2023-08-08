@@ -106,11 +106,10 @@ try:
             weight = -1
             model.do_pass(data, total_iter, weight)
             total_iter += 1
-            print(f'One iteration takes {round(time.time() - start, 2)} seconds.')
             if total_iter >= para['iterations']:
                 break
 
-            if total_iter % 1000 == 0 and total_iter !=0:
+            if total_iter % 100 == 0 and total_iter !=0:
                 model.save(total_iter)
 
         if para['stage'] == 1 and e > skip_epoch:

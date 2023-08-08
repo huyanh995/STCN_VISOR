@@ -313,7 +313,7 @@ class CBCombineLossComputer:
             losses['boundary_loss'] += self.boundary_bce(data['cb_%d'%i],                       # hand mask
                                                          data['boundary_gt'][:, i:i+1])         # boundary GT
         if weight < 0:
-            losses['total_loss'] = losses['mask_loss'] + losses['boundary_loss']
+            losses['total_loss'] = losses['mask_loss'] + 3 * losses['boundary_loss']
         else:
             losses['total_loss'] = (1 - weight) * losses['mask_loss'] + weight * losses['boundary_loss']
 
