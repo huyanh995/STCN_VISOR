@@ -24,14 +24,14 @@ class ResBlock(nn.Module):
             self.downsample = None
         else:
             self.downsample = nn.Conv2d(indim, outdim, kernel_size=3, padding=1)
- 
+
         self.conv1 = nn.Conv2d(indim, outdim, kernel_size=3, padding=1)
         self.conv2 = nn.Conv2d(outdim, outdim, kernel_size=3, padding=1)
- 
+
     def forward(self, x):
         r = self.conv1(F.relu(x))
         r = self.conv2(F.relu(r))
-        
+
         if self.downsample is not None:
             x = self.downsample(x)
 
@@ -51,7 +51,7 @@ class FeatureFusionBlock(nn.Module):
 
     def forward(self, x, f16):
         """
-        f16 is feature from key encoder. 
+        f16 is feature from key encoder.
         TODO: review later.
         """
         x = torch.cat([x, f16], dim=1)
@@ -165,11 +165,11 @@ class KeyEncoder(nn.Module):
         """
         Input: img (B*T, C=3, H, W)
         """
-        x = self.conv1(img) 
+        x = self.conv1(img)
         x = self.bn1(x)
         x = self.relu(x)        # (B*T, 64, H/2, W/2)
         x = self.maxpool(x)     # (B*T, 64, H/4, W/4)
-        f4 = self.res2(x)       # (B*T, 256, H/4, W/4) 
+        f4 = self.res2(x)       # (B*T, 256, H/4, W/4)
         f8 = self.layer2(f4)    # (B*T, 512, H/8, W/8)
         f16 = self.layer3(f8)   # (B*T, 1024, H/16, W/16)
 
@@ -200,6 +200,6 @@ class KeyProjection(nn.Module):
 
         nn.init.orthogonal_(self.key_proj.weight.data)
         nn.init.zeros_(self.key_proj.bias.data)
-    
+
     def forward(self, x):
         return self.key_proj(x)

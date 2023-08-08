@@ -1,0 +1,17 @@
+id:
+
+visor_root:
+egohos_root:
+stage:
+
+batch_size: 8
+iterations: 300000
+steps:
+lr: 0.001
+gamma: 0.1
+
+load_model:
+load_network:
+ddp:
+  num_workers:
+  local_rank:

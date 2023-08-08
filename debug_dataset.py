@@ -1,3 +1,6 @@
+from tqdm import tqdm
+from torch.utils.data import DataLoader
+
 from dataset.static_dataset import StaticTransformDataset
 from dataset.vos_dataset import VOSDataset
 from dataset.visor_dataset import VISORDataset
@@ -35,9 +38,18 @@ def viz(data):
     boundaries = None
     if 'boundary' in data:
         boundaries = data['boundary']
+        if type(boundaries) == torch.Tensor:
+            boundaries = boundaries.numpy()
 
     if type(masks) == torch.Tensor:
         masks = masks.numpy()
+
+    if len(frames.shape) == 5:
+        frames = frames[0]
+        masks = masks[0]
+        if 'boundary' in data:
+            boundaries = boundaries[0]
+
     for idx in range(3):
         img = np.round(frames[idx] * 255).astype(np.uint8)
         img = img.transpose(1, 2, 0) # (384, 384, 3)
@@ -46,11 +58,15 @@ def viz(data):
         mask = masks[idx].squeeze().astype(np.uint8) # (384, 384)
         imwrite_mask(mask, '{}.png'.format(idx))
 
-        if boundaries:
-            left = boundaries[idx][0].squeeze().astype(np.uint8)
-            imwrite_mask(left, '{}_left.png'.format(idx))
-            right = boundaries[idx][1].squeeze().astype(np.uint8)
-            imwrite_mask(right, '{}_right.png'.format(idx))
+        if boundaries is not None:
+            if len(boundaries.shape) == 3:
+                boundary = boundaries[idx].squeeze().astype(np.uint8)
+                imwrite_mask(boundary, '{}_boundary.png'.format(idx))
+            elif len(boundaries.shape) == 4:
+                left = boundaries[idx][0].squeeze().astype(np.uint8)
+                imwrite_mask(left, '{}_left.png'.format(idx))
+                right = boundaries[idx][1].squeeze().astype(np.uint8)
+                imwrite_mask(right * 2, '{}_right.png'.format(idx))
 
 
 # fss_dir = {'root': '/data/add_disk1/huyanh/Thesis/static/fss',
@@ -80,20 +96,25 @@ def viz(data):
 # data = ytvos[0]
 # print('DEBUG')
 
-# visor_dir = {'im_root': '/data/add_disk1/huyanh/Thesis/VISOR_NO_AUG/VISOR_2022_YTVOS/train/JPEGImages',
-#              'gt_root': '/data/add_disk1/huyanh/Thesis/VISOR_NO_AUG/VISOR_2022_YTVOS/train/Annotations',
-#              'bound_root': '/data/add_disk1/huyanh/Thesis/VISOR_NO_AUG/VISOR_2022_YTVOS/train/Boundaries',
-#              'skip_frame': False,
-#              'include_hand': False}
+visor_dir = {'im_root': '/data/add_disk1/huyanh/Thesis/VISOR_NO_AUG/VISOR_2022_YTVOS/train/JPEGImages',
+             'gt_root': '/data/add_disk1/huyanh/Thesis/VISOR_NO_AUG/VISOR_2022_YTVOS/train/Annotations',
+             'bound_root': '/data/add_disk1/huyanh/Thesis/VISOR_NO_AUG/VISOR_2022_YTVOS/train/Boundaries',
+             'skip_frame': False,
+             'include_hand': True}
 
-# visor = VISORDataset(**visor_dir)
-# data = visor[0]
-# print('DEBUG')
+visor = VISORDataset(**visor_dir)
+dataloader = DataLoader(visor, batch_size = 16, num_workers=24)
+for data in tqdm(dataloader):
+    pass
+print('DEBUG')
 
 # egohos_dir = {'root': '/data/add_disk1/huyanh/Thesis/EgoHOS_STATIC',
-#               'subset': 'val'}
+#               'subset': 'train'}
 # egohos = EgoHOSDataset(**egohos_dir)
-# data = egohos[0]
+# dataloader = DataLoader(egohos, batch_size = 8, num_workers=8)
+# for data in tqdm(dataloader):
+#     pass
+
 # print('DEBUG')
 
 
@@ -114,10 +135,10 @@ def viz(data):
 # ytvos_test = YouTubeVOSTestDataset(**ytvos_test_dir)
 # data = ytvos_test[0]
 
-visor_test_dir = {'root': '/data/add_disk1/huyanh/Thesis/VISOR_NO_AUG/VISOR_2022_YTVOS/val'}
-visor_test = VISORTestDataset(**visor_test_dir)
-data = visor_test[0]
-print('DEBUG')
+# visor_test_dir = {'root': '/data/add_disk1/huyanh/Thesis/VISOR_NO_AUG/VISOR_2022_YTVOS/val'}
+# visor_test = VISORTestDataset(**visor_test_dir)
+# data = visor_test[0]
+# print('DEBUG')
 
 
 

@@ -22,7 +22,12 @@ class VOSDataset(Dataset):
     - Apply random transform to each of the frame
     - The distance between frames is controlled
     """
-    def __init__(self, im_root, gt_root, max_jump, is_bl, subset=None):
+    def __init__(self, im_root, gt_root, max_jump, is_bl,
+                 subset=None, # manually left out some videos
+                 ):
+        # For YTVOS, choose 3464 over 3471 videos
+        # For DAVIS, choose 60 over 90 videos
+
         self.im_root = im_root
         self.gt_root = gt_root
         self.max_jump = max_jump

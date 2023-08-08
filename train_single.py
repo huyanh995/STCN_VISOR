@@ -163,6 +163,9 @@ try:
             if total_iter >= para['iterations']:
                 break
 
+except Exception as e:
+    print(e)
+
 finally:
     if not para['debug'] and model.logger is not None and total_iter>5000:
         model.save(total_iter)

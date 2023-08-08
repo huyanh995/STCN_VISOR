@@ -1,3 +1,17 @@
+"""
+Mask labels:
+1 - left hand
+2 - right hand
+3 - direct contact object of left hand
+4 - direct contact object of right hand
+5 - direct contact object of both hands
+
+6 - indirect contact object of left hand
+7 - indirect contact object of right hand
+8 - indirect contact object of both hands
+"""
+import time
+import random
 import os
 from os import path
 
@@ -22,10 +36,10 @@ class EgoHOSDataset(Dataset):
     def __init__(self,
                 root: str,
                 subset: str,
-                single_object: bool = True,
+                prob: float = 0.2,
                 ) -> None:
         assert subset in ['train', 'val']
-        self.single_object = single_object
+        self.prob = prob
         self.im_root = os.path.join(root, subset, 'JPEGImages')
         self.gt_root = os.path.join(root, subset, 'Annotations')
         self.bound_root = os.path.join(root, subset, 'Boundaries')
@@ -119,31 +133,58 @@ class EgoHOSDataset(Dataset):
             boundaries.append(this_cb)
 
         images = torch.stack(images, 0)
-        masks = np.stack(masks, 0) # np instead of torch in VISOR
-        boundary_masks = np.stack(boundaries, 0) # np instead of torch in VISOR
+        masks = np.stack(masks, 0)
+        boundary_masks = np.stack(boundaries, 0)
 
         labels = np.unique(masks[0]) # there is a chance that object disappears after those transformations
         labels = labels[labels != 0]
 
         selector = []
-        selector += [1] if 1 in labels else [0]
-        selector += [1] if 2 in labels else [0]
 
         left_hand_masks = (masks == 1).astype(np.float32)[:, np.newaxis, :, :]
         right_hand_masks = (masks == 2).astype(np.float32)[:, np.newaxis, :, :]
 
-        object_labels = labels[labels > 2]
-        target_object = -1
-        second_object = -1
-        if object_labels:
-            target_object = np.random.choice(object_labels)
-            if len(object_labels) > 1:
-                second_object = np.random.choice(object_labels[object_labels != target_object])
-                selector += [1, 1]
-            else:
-                selector += [1, 0]
+        hand_labels = labels[labels <= 2]
+        target_object = np.random.choice(hand_labels) if len(hand_labels) > 0 else -1
+
+        # Choose second object
+        p = random.random()
+
+        if target_object + 2 in labels:
+            second_object = target_object + 2
+            selector = [1, 1]
+        elif 5 in labels:
+            second_object = 5
+            selector = [1, 1]
         else:
-            selector += [0, 0]
+            second_object = -1
+            selector = [1, 0]
+        boundary_masks = boundary_masks[:, target_object - 1, :, :].astype(np.float32)
+
+        # Swap hand and object based on prob
+        if p < self.prob:
+            if target_object == 1 and 4 in labels:
+                second_object = 4
+                selector = [1, 1]
+                boundary_masks = np.zeros_like(boundary_masks)
+
+            elif target_object == 2 and 3 in labels:
+                second_object = 3
+                selector = [1, 1]
+                boundary_masks = np.zeros_like(boundary_masks)
+
+        # object_labels = labels[labels > 2]
+        # target_object = -1
+        # second_object = -1
+        # if object_labels:
+        #     target_object = np.random.choice(object_labels)
+        #     if len(object_labels) > 1:
+        #         second_object = np.random.choice(object_labels[object_labels != target_object])
+        #         selector += [1, 1]
+        #     else:
+        #         selector += [1, 0]
+        # else:
+        #     selector += [0, 0]
 
         selector = torch.FloatTensor(selector)
 
@@ -151,10 +192,11 @@ class EgoHOSDataset(Dataset):
         second_masks = (masks == second_object).astype(np.float32)[:, np.newaxis, :, :]
 
         cls_gt = np.zeros((3, 384, 384), dtype=int)
+        cls_gt[target_masks[:, 0] > 0.5] = 1
+        cls_gt[second_masks[:, 0] > 0.5] = 2
 
         info = {}
         info['name'] = self.im_list[idx]
-
         data = {
             'rgb': images,                  # (N=3, 3, 384, 384)    -> torch.tensor
             'gt': target_masks,             # (N=3, 1, 384, 384)    -> np.array
@@ -162,7 +204,7 @@ class EgoHOSDataset(Dataset):
             'sec_gt': second_masks,         # (N=3, 1, 384, 384)    -> np.array
             'left_hand': left_hand_masks,   # (N=3, 1, 384, 384)    -> np.array
             'right_hand': right_hand_masks, # (N=3, 1, 384, 384)    -> np.array
-            'boundary': boundary_masks,     # (N=3, 2, 384, 384)    -> np.array
+            'boundary_gt': boundary_masks,     # (N=3, 2, 384, 384)    -> np.array
             'selector': selector,           # (4, )                 -> torch.tensor
             'info': info
         }

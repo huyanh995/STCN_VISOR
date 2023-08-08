@@ -23,7 +23,7 @@ class STCNModel:
         self.local_rank = local_rank
 
         self.STCN = nn.parallel.DistributedDataParallel(
-            STCN(self.single_object).cuda(), 
+            STCN(self.single_object).cuda(),
             device_ids=[local_rank], output_device=local_rank, broadcast_buffers=False)
 
         # Setup logger when local_rank=0
@@ -72,8 +72,8 @@ class STCNModel:
                 ref_v = self.STCN('encode_value', Fs[:,0], kf16[:,0], Ms[:,0])
 
                 # Segment frame 1 with frame 0
-                prev_logits, prev_mask = self.STCN('segment', 
-                        k16[:,:,1], kf16_thin[:,1], kf8[:,1], kf4[:,1], 
+                prev_logits, prev_mask = self.STCN('segment',
+                        k16[:,:,1], kf16_thin[:,1], kf8[:,1], kf4[:,1],
                         k16[:,:,0:1], ref_v)
                 prev_v = self.STCN('encode_value', Fs[:,1], kf16[:,1], prev_mask)
 
@@ -82,8 +82,8 @@ class STCNModel:
                 del ref_v
 
                 # Segment frame 2 with frame 0 and 1
-                this_logits, this_mask = self.STCN('segment', 
-                        k16[:,:,2], kf16_thin[:,2], kf8[:,2], kf4[:,2], 
+                this_logits, this_mask = self.STCN('segment',
+                        k16[:,:,2], kf16_thin[:,2], kf8[:,2], kf4[:,2],
                         k16[:,:,0:2], values)
 
                 out['mask_1'] = prev_mask
@@ -99,10 +99,10 @@ class STCNModel:
                 ref_v = torch.stack([ref_v1, ref_v2], 1)
 
                 # Segment frame 1 with frame 0
-                prev_logits, prev_mask = self.STCN('segment', 
-                        k16[:,:,1], kf16_thin[:,1], kf8[:,1], kf4[:,1], 
+                prev_logits, prev_mask = self.STCN('segment',
+                        k16[:,:,1], kf16_thin[:,1], kf8[:,1], kf4[:,1],
                         k16[:,:,0:1], ref_v, selector)
-                
+
                 prev_v1 = self.STCN('encode_value', Fs[:,1], kf16[:,1], prev_mask[:,0:1], prev_mask[:,1:2])
                 prev_v2 = self.STCN('encode_value', Fs[:,1], kf16[:,1], prev_mask[:,1:2], prev_mask[:,0:1])
                 prev_v = torch.stack([prev_v1, prev_v2], 1)
@@ -111,8 +111,8 @@ class STCNModel:
                 del ref_v
 
                 # Segment frame 2 with frame 0 and 1
-                this_logits, this_mask = self.STCN('segment', 
-                        k16[:,:,2], kf16_thin[:,2], kf8[:,2], kf4[:,2], 
+                this_logits, this_mask = self.STCN('segment',
+                        k16[:,:,2], kf16_thin[:,2], kf8[:,2], kf4[:,2],
                         k16[:,:,0:2], values, selector)
 
                 out['mask_1'] = prev_mask[:,0:1]
@@ -159,7 +159,7 @@ class STCNModel:
                 self.scaler.step(self.optimizer)
                 self.scaler.update()
             else:
-                losses['total_loss'].backward() 
+                losses['total_loss'].backward()
                 self.optimizer.step()
             self.scheduler.step()
 
@@ -167,7 +167,7 @@ class STCNModel:
         if self.save_path is None:
             print('Saving has been disabled.')
             return
-        
+
         os.makedirs(os.path.dirname(self.save_path), exist_ok=True)
         model_path = self.save_path + ('_%s.pth' % it)
         torch.save(self.STCN.module.state_dict(), model_path)
@@ -182,7 +182,7 @@ class STCNModel:
 
         os.makedirs(os.path.dirname(self.save_path), exist_ok=True)
         checkpoint_path = self.save_path + '_checkpoint.pth'
-        checkpoint = { 
+        checkpoint = {
             'it': it,
             'network': self.STCN.module.state_dict(),
             'optimizer': self.optimizer.state_dict(),
@@ -245,7 +245,7 @@ class STCNModel:
         self._do_log = False
         self.STCN.eval()
         return self
-    
+
 
 class STCNModelSingle:
     """
@@ -277,8 +277,8 @@ class STCNModelSingle:
                 data[k] = v.cuda(non_blocking=True)
 
         out = {}
-        Fs = data['rgb'] # Load all rgb images: (N, T, 3, H, W)
-        Ms = data['gt'] # Load all masks:       (N, T, 1, H, W)
+        Fs = data['rgb'] # Load all rgb images: (N, 3, 3, 384, 384)
+        Ms = data['gt'] # Load all masks:       (N, 3, 1, 384, 384)
 
         with torch.cuda.amp.autocast(enabled=self.para['amp']):
             # key features never change, compute once
@@ -288,8 +288,8 @@ class STCNModelSingle:
                 ref_v = self.STCN('encode_value', Fs[:,0], kf16[:,0], Ms[:,0])
 
                 # Segment frame 1 with frame 0
-                prev_logits, prev_mask = self.STCN('segment', 
-                        k16[:,:,1], kf16_thin[:,1], kf8[:,1], kf4[:,1], 
+                prev_logits, prev_mask = self.STCN('segment',
+                        k16[:,:,1], kf16_thin[:,1], kf8[:,1], kf4[:,1],
                         k16[:,:,0:1], ref_v)
                 prev_v = self.STCN('encode_value', Fs[:,1], kf16[:,1], prev_mask)
 
@@ -298,8 +298,8 @@ class STCNModelSingle:
                 del ref_v
 
                 # Segment frame 2 with frame 0 and 1
-                this_logits, this_mask = self.STCN('segment', 
-                        k16[:,:,2], kf16_thin[:,2], kf8[:,2], kf4[:,2], 
+                this_logits, this_mask = self.STCN('segment',
+                        k16[:,:,2], kf16_thin[:,2], kf8[:,2], kf4[:,2],
                         k16[:,:,0:2], values)
 
                 out['mask_1'] = prev_mask
@@ -307,7 +307,7 @@ class STCNModelSingle:
                 out['logits_1'] = prev_logits
                 out['logits_2'] = this_logits
             else:
-                sec_Ms = data['sec_gt']
+                sec_Ms = data['sec_gt'] # (N, 3, 1, 384, 384)
                 selector = data['selector']
 
                 # encode value for frame and target object, sec_Ms is the other_mask
@@ -326,10 +326,10 @@ class STCNModelSingle:
                         k16[:,:,0:1],   # mk16
                         ref_v,          # mv16 -> memory value from previous mask (1st frame)
                         selector) # 1 for second RGB frame.
-                
+
                 # NOTE: Any reason to kf[:, :, 0:1] instead of kf[:, :, 0]? -> Same shape with kf16[:,:,1]
-                
                 # NOTE: prev_mask is not binary mask anymore, but a probability map.
+
                 prev_v1 = self.STCN('encode_value', Fs[:,1], kf16[:,1], prev_mask[:,0:1], prev_mask[:,1:2]) # (N, 512, 1, H/16, W/16)
                 prev_v2 = self.STCN('encode_value', Fs[:,1], kf16[:,1], prev_mask[:,1:2], prev_mask[:,0:1]) # (N, 512, 1, H/16, W/16)
                 # values from previous (frame, predicted mask) pair.
@@ -340,21 +340,21 @@ class STCNModelSingle:
                 del ref_v
 
                 # Segment frame 2 with frame 0 and 1
-                this_logits, this_mask = self.STCN('segment', 
-                        k16[:,:,2], 
-                        kf16_thin[:,2], 
-                        kf8[:,2], 
-                        kf4[:,2], 
+                this_logits, this_mask = self.STCN('segment',
+                        k16[:,:,2],
+                        kf16_thin[:,2],
+                        kf8[:,2],
+                        kf4[:,2],
                         k16[:,:,0:2], # NOTE: Key idea: memory key is also from query key k16[:, :, 1] in previous step
-                        values, 
+                        values,
                         selector)
 
-                out['mask_1'] = prev_mask[:,0:1] # (N, 1, H, W)
-                out['mask_2'] = this_mask[:,0:1] # (N, 1, H, W)
+                out['mask_1'] = prev_mask[:,0:1] # (N, 2, H, W) # predicted mask after sigmoid of frame 1
+                out['mask_2'] = this_mask[:,0:1] # (N, 2, H, W) # predicted mask after sigmoid of frame 2
                 out['sec_mask_1'] = prev_mask[:,1:2]
                 out['sec_mask_2'] = this_mask[:,1:2]
                 # NOTE: How to aggregate masks into one mask? Suppose a pixel can be 1 in both masks for 2 objects
-                
+
                 out['logits_1'] = prev_logits # (N, 3, H, W)
                 out['logits_2'] = this_logits # (N, 3, H, W)
 
@@ -371,7 +371,7 @@ class STCNModelSingle:
                 self.scaler.step(self.optimizer)
                 self.scaler.update()
             else:
-                losses['total_loss'].backward() 
+                losses['total_loss'].backward()
                 self.optimizer.step()
             self.scheduler.step()
 
@@ -379,7 +379,7 @@ class STCNModelSingle:
         if self.save_path is None:
             print('Saving has been disabled.')
             return
-        
+
         os.makedirs(os.path.dirname(self.save_path), exist_ok=True)
         model_path = self.save_path + ('_%s.pth' % it)
         torch.save(self.STCN.module.state_dict(), model_path)
@@ -394,7 +394,7 @@ class STCNModelSingle:
 
         os.makedirs(os.path.dirname(self.save_path), exist_ok=True)
         checkpoint_path = self.save_path + '_checkpoint.pth'
-        checkpoint = { 
+        checkpoint = {
             'it': it,
             'network': self.STCN.module.state_dict(),
             'optimizer': self.optimizer.state_dict(),
