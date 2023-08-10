@@ -100,4 +100,3 @@ class TensorboardLogger:
             warnings.warn('Logging has been disabled.')
             return
         self.logger.add_text(tag, x)
-        

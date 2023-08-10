@@ -55,7 +55,7 @@ class GenericTestDataset(Dataset):
         video = self.videos[idx]
         info = {}
         info['name'] = video
-        info['frames'] = self.frames[video] 
+        info['frames'] = self.frames[video]
         info['size'] = self.shape[video] # Real sizes
         info['gt_obj'] = {} # Frames with labelled objects
 
@@ -69,7 +69,7 @@ class GenericTestDataset(Dataset):
         for i, f in enumerate(frames):
             img = Image.open(path.join(vid_im_path, f)).convert('RGB')
             images.append(self.im_transform(img))
-            
+
             mask_file = path.join(vid_gt_path, f.replace('.jpg','.png'))
             if path.exists(mask_file):
                 mask = Image.open(mask_file).convert('P')
@@ -81,10 +81,10 @@ class GenericTestDataset(Dataset):
             else:
                 # Mask not exists -> nothing in it
                 masks.append(np.zeros(self.shape[video]))
-        
+
         images = torch.stack(images, 0)
         masks = np.stack(masks, 0)
-        
+
         # Construct the forward and backward mapping table for labels
         # this is because YouTubeVOS's labels are sometimes not continuous
         # while we want continuous ones (for one-hot)

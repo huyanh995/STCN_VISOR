@@ -180,6 +180,8 @@ class STCNCBModel:
             else:
                 losses['total_loss'].backward()
                 self.optimizer.step()
+
+            nn.utils.clip_grad_norm_(self.STCN.parameters(), 1.0)
             self.scheduler.step()
 
         if it % self.para['log_every'] == 0 and it != 0:

@@ -106,6 +106,7 @@ try:
             weight = -1
             model.do_pass(data, total_iter, weight)
             total_iter += 1
+
             if total_iter >= para['iterations']:
                 break
 

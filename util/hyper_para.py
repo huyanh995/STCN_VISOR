@@ -10,7 +10,7 @@ class HyperParameters():
 
         # Enable torch.backends.cudnn.benchmark -- Faster in some cases, test in your own environment
         parser.add_argument('--gpu_id', type=str, default='5')
-        parser.add_argument('--name', type=str, default='test_VISOR_CB')
+        parser.add_argument('--name', type=str, default='VISOR_Pred_CB')
         parser.add_argument('--loss', type=str, default='default')
         parser.add_argument('--benchmark', action='store_true')
         parser.add_argument('--no_amp', action='store_true')
@@ -94,8 +94,8 @@ class HyperParameters():
             # EgoHOS Static training >>> 150K
             self.args['lr'] = none_or_default(self.args['lr'], 1e-5)
             self.args['batch_size'] = none_or_default(self.args['batch_size'], 14)
-            self.args['iterations'] = none_or_default(self.args['iterations'], 35000)
-            self.args['steps'] = none_or_default(self.args['steps'], [17500])
+            self.args['iterations'] = none_or_default(self.args['iterations'], 15000)
+            self.args['steps'] = none_or_default(self.args['steps'], [15000])
             self.args['single_object'] = False
 
         elif self.args['stage'] == 1:

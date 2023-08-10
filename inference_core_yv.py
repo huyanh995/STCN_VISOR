@@ -67,7 +67,7 @@ class InferenceCore:
         last_ti = idx
 
         # Note that we never reach closest_ti, just the frame before it
-        this_range = range(idx+1, closest_ti)
+        this_range = range(idx+1, closest_ti) # frames to propagate
         step = +1
         end = closest_ti - 1
 
@@ -86,7 +86,7 @@ class InferenceCore:
             for oi in self.enabled_obj], 0)
 
             out_mask = aggregate(out_mask, keep_bg=True)
-            self.prob[0,ti] = out_mask[0]
+            self.prob[0,ti] = out_mask[0] # background
             for i, oi in enumerate(self.enabled_obj):
                 self.prob[oi,ti] = out_mask[i+1]
 
@@ -114,7 +114,8 @@ class InferenceCore:
         mask, _ = pad_divide_by(mask.cuda(), 16) # (3, 1, 480, 864)
 
         # update objects that have been labeled
-        self.enabled_obj.extend(obj_idx) # TODO: Key here
+        # self.enabled_obj.extend(obj_idx) # TODO: Key here
+        self.enabled_obj = obj_idx
 
         # Set other prob of mask regions to zero
         # NOTE: Reason that GT mask output always the same as GT

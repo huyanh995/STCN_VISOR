@@ -44,18 +44,19 @@ from inference_core_yv import InferenceCore
 
 from progressbar import progressbar
 
-os.environ['CUDA_VISIBLE_DEVICES'] = '1'
+os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 """
 Arguments loading
 """
 parser = ArgumentParser()
-parser.add_argument('--model', default='saves/vanilla_2000.pth')
-parser.add_argument('--data_path', default='/data/add_disk1/huyanh/Thesis/VISOR_YTVOS_VAL/val_no_hand/Normal')
-parser.add_argument('--output', default='/data/add_disk1/huyanh/Thesis/Results/test_VISOR')
+parser.add_argument('--model', default='/data/add_disk1/huyanh/Thesis/STCN_VISOR/saves/test_VISOR_CB/23_08_09_16_49_iter_34900.pth')
+# parser.add_argument('--data_path', default='/data/add_disk1/huyanh/Thesis/VISOR_YTVOS_VAL/val_no_hand/Normal')
+parser.add_argument('--data_path', default='/data/add_disk1/huyanh/Thesis/VISOR_YTVOS_VAL/val_aug_no_hand')
+parser.add_argument('--output', default='/data/add_disk1/huyanh/Thesis/Results/STCN_CB_Full')
 parser.add_argument('--top', type=int, default=20)
-parser.add_argument('--amp_off', action='store_true')
+parser.add_argument('--amp_off', default = True)
 parser.add_argument('--mem_every', default=1, type=int)
-parser.add_argument('--include_last', help='include last frame as temporary memory?', action='store_true')
+parser.add_argument('--include_last', help='include last frame as temporary memory?', default=True)
 args = parser.parse_args()
 
 data_path = args.data_path
@@ -131,7 +132,7 @@ for data in progressbar(test_loader, max_value=len(test_loader), redirect_stdout
             else:
                 processor.interact(with_bg_msk,
                                    frame_idx,
-                                   frames_with_gt[i+1]+1, # What is this?
+                                   frames_with_gt[i+1]+1, # next frame has GT
                                    obj_idx)
 
         # Do unpad -> upsample to original size (we made it 480p)
@@ -139,8 +140,8 @@ for data in progressbar(test_loader, max_value=len(test_loader), redirect_stdout
 
         for ti in range(processor.t):
             prob = unpad(processor.prob[:,ti], processor.pad)
-            prob = F.interpolate(prob, size, mode='bilinear', align_corners=False)
-            out_masks[ti] = torch.argmax(prob, dim=0)
+            prob = F.interpolate(prob, size, mode='bilinear', align_corners=False) # (num_objects + 1, H, W)
+            out_masks[ti] = torch.argmax(prob, dim=0) # argmax each pixels
 
         out_masks = (out_masks.detach().cpu().numpy()[:,0]).astype(np.uint8)
 
