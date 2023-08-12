@@ -10,7 +10,7 @@ class HyperParameters():
 
         # Enable torch.backends.cudnn.benchmark -- Faster in some cases, test in your own environment
         parser.add_argument('--gpu_id', type=str, default='5')
-        parser.add_argument('--name', type=str, default='STCN_CB_5x')
+        parser.add_argument('--name', type=str, default='STCN_CB_5x_EGO')
         parser.add_argument('--loss', type=str, default='combine')
         parser.add_argument('--benchmark', action='store_true')
         parser.add_argument('--no_amp', action='store_true')
@@ -41,7 +41,7 @@ class HyperParameters():
 
         # Loading
         parser.add_argument('--load_network', help='Path to pretrained network weight only',
-                            default='/data/add_disk1/huyanh/Thesis/STCN_VISOR/saves/stcn.pth')
+                            default='/data/add_disk1/huyanh/Thesis/STCN_VISOR/saves/egohos.pth')
         parser.add_argument('--load_model', help='Path to the model file, including network, optimizer and such')
 
         # Logging information
