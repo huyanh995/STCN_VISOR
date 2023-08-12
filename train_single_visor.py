@@ -58,13 +58,13 @@ def renew_visor(skip_frame = False):
 model = STCNVISORModel(para).train()
 if para['load_model'] is not None:
     total_iter = model.load_model(para['load_model'])
-    print('Previously trained model loaded!')
+    print(f'Previously trained model {os.path.basename(para["load_model"])} loaded!')
 else:
     total_iter = 0
 
 if para['load_network'] is not None:
     model.load_network(para['load_network'])
-    print('Previously trained network loaded!')
+    print(f'Previously trained model {os.path.basename(para["load_network"])} loaded!')
 
 #* Dataset preparation ==============================================
 # Construct dataset

@@ -245,7 +245,7 @@ class STCNVISORModel:
                     src_dict[k] = torch.cat([src_dict[k], pads], 1)
 
         # self.STCN.module.load_state_dict(src_dict)
-        self.STCN.load_state_dict(src_dict)
+        self.STCN.load_state_dict(src_dict, strict=False)
         print('Network weight loaded:', path)
 
     def train(self):
