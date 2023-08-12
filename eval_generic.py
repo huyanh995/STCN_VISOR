@@ -44,20 +44,29 @@ from inference_core_yv import InferenceCore
 
 from progressbar import progressbar
 
-os.environ['CUDA_VISIBLE_DEVICES'] = '0'
+
 """
 Arguments loading
 """
 parser = ArgumentParser()
-parser.add_argument('--model', default='/data/add_disk1/huyanh/Thesis/STCN_VISOR/saves/test_VISOR_CB/23_08_09_16_49_iter_34900.pth')
-# parser.add_argument('--data_path', default='/data/add_disk1/huyanh/Thesis/VISOR_YTVOS_VAL/val_no_hand/Normal')
-parser.add_argument('--data_path', default='/data/add_disk1/huyanh/Thesis/VISOR_YTVOS_VAL/val_aug_no_hand')
-parser.add_argument('--output', default='/data/add_disk1/huyanh/Thesis/Results/STCN_CB_Full')
+parser.add_argument('--model', default='/data/add_disk1/huyanh/Thesis/STCN_VISOR/saves/STCN_CB_5x/23_08_12_15_59_iter_34900.pth')
+parser.add_argument('--data_path', default='/data/add_disk1/huyanh/Thesis/VISOR_YTVOS_VAL/val_no_hand/Normal') # Normal Val
+# parser.add_argument('--data_path', default='/data/add_disk1/huyanh/Thesis/VISOR_YTVOS_VAL/val_aug_no_hand') # Augmented Val
+parser.add_argument('--output', default='/data/add_disk1/huyanh/Thesis/Results/STCN_CB_5x_NO_AUG')
 parser.add_argument('--top', type=int, default=20)
 parser.add_argument('--amp_off', default = True)
 parser.add_argument('--mem_every', default=1, type=int)
 parser.add_argument('--include_last', help='include last frame as temporary memory?', default=True)
+parser.add_argument('--gpu', default='5')
 args = parser.parse_args()
+
+os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu
+print('=' * 80)
+print(f'Using GPU {args.gpu} ...')
+print(f'Inference model {args.model} ...')
+print(f'On data {args.data_path} ...')
+print(f'Save to {args.output} ...')
+print('=' * 80)
 
 data_path = args.data_path
 out_path = args.output

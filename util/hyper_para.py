@@ -10,8 +10,8 @@ class HyperParameters():
 
         # Enable torch.backends.cudnn.benchmark -- Faster in some cases, test in your own environment
         parser.add_argument('--gpu_id', type=str, default='5')
-        parser.add_argument('--name', type=str, default='VISOR_Pred_CB')
-        parser.add_argument('--loss', type=str, default='default')
+        parser.add_argument('--name', type=str, default='STCN_CB_5x')
+        parser.add_argument('--loss', type=str, default='combine')
         parser.add_argument('--benchmark', action='store_true')
         parser.add_argument('--no_amp', action='store_true')
 
@@ -23,7 +23,7 @@ class HyperParameters():
         parser.add_argument('--visor_root', help='VISOR data root',
                             default='/data/add_disk1/huyanh/Thesis/VISOR_NO_AUG/VISOR_2022_YTVOS/train/')
         parser.add_argument('--ego_root', help='EgoHOS data root',
-                            default='/data/add_disk1/huyanh/Thesis/EgoHOS_STATIC')
+                            default='/data/add_disk0/huyanh/Thesis/EgoHOS_STATIC')
 
         parser.add_argument('--include_hand', help='Include hand in VISOR dataset', default=True)
         # parser.add_argument('--stage', help='Training stage (0-static images, 1-Blender dataset, 2-DAVIS+YouTubeVOS (300K), 3-DAVIS+YouTubeVOS (150K))', type=int, default=3)

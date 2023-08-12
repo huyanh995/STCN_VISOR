@@ -105,8 +105,8 @@ visor_dir = {'im_root': '/data/add_disk1/huyanh/Thesis/VISOR_NO_AUG/VISOR_2022_Y
 visor = VISORDataset(**visor_dir)
 dataloader = DataLoader(visor, batch_size = 16, num_workers=24)
 for data in tqdm(dataloader):
-    pass
-print('DEBUG')
+    viz(data)
+    print('DEBUG')
 
 # egohos_dir = {'root': '/data/add_disk1/huyanh/Thesis/EgoHOS_STATIC',
 #               'subset': 'train'}
